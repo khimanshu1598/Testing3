@@ -89,7 +89,7 @@ jobs:
     needs: deploy
     strategy:
       matrix: ${{ fromJson(needs.create-environment-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/reusable-workflow.yml # Path to the reusable workflow
+    uses: ./.github/workflows/reusable_workflow.yml # Path to the reusable workflow
     with:
       environment: ${{ matrix.environment }} # Pass the environment as input if needed
 
