@@ -55,7 +55,7 @@ jobs:
           Write-Output "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Debug Generated Matrix
-        run: echo "Generated Matrix: ${{ steps.set-matrix.outputs.matrix }}"
+        run: 'echo "Generated Matrix: ${{ steps.set-matrix.outputs.matrix }}"'
 
   deploy:
     needs: create-environment-matrix
