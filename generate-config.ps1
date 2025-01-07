@@ -28,7 +28,7 @@ foreach ($key in $variables.Keys) {
     if ($variables[$key] -is [System.Collections.Hashtable] -and $variables[$key].environments) {
         if ($variables[$key].environments.ContainsKey($environment)) {
             $value = $variables[$key].environments[$environment].value
-            if (![string]::IsNullOrWhiteSpace($key) -and $value -ne $null) {
+            if (![string]::IsNullOrWhiteSpace($key) -and $value -ne $null -and (![string]::IsNullOrWhiteSpace($value))) {
                 $consolidatedVars[$key] = $value
             } else {
                 Write-Output "Skipping invalid entry: Key='$key', Value='$value'"
@@ -41,7 +41,7 @@ foreach ($key in $variables.Keys) {
 foreach ($key in $variables.Keys) {
     if ($variables[$key] -is [System.Collections.Hashtable] -and $variables[$key].ContainsKey("value") -and -not $variables[$key].ContainsKey("environments")) {
         $value = $variables[$key].value
-        if (![string]::IsNullOrWhiteSpace($key) -and $value -ne $null) {
+        if (![string]::IsNullOrWhiteSpace($key) -and $value -ne $null -and (![string]::IsNullOrWhiteSpace($value))) {
             $consolidatedVars[$key] = $value
         } else {
             Write-Output "Skipping invalid global entry: Key='$key', Value='$value'"
@@ -59,9 +59,9 @@ if ($consolidatedVars.Count -eq 0) {
 $configFilePath = ".\config.ps1"
 Write-Output "Writing consolidated variables to ${configFilePath}"
 
-# Write validated entries to config.ps1
+# Write only validated entries to config.ps1
 $consolidatedVars.GetEnumerator() | ForEach-Object {
-    if (![string]::IsNullOrWhiteSpace($_.Key) -and $_.Value -ne $null) {
+    if (![string]::IsNullOrWhiteSpace($_.Key) -and $_.Value -ne $null -and (![string]::IsNullOrWhiteSpace($_.Value))) {
         "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
     } else {
         Write-Output "Skipping invalid entry during write: Key='${($_.Key)}', Value='${($_.Value)}'"
