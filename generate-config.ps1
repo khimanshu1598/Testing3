@@ -61,7 +61,11 @@ Write-Output "Writing consolidated variables to ${configFilePath}"
 
 # Write validated entries to config.ps1
 $consolidatedVars.GetEnumerator() | ForEach-Object {
-    "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
+    if (![string]::IsNullOrWhiteSpace($_.Key) -and $_.Value -ne $null) {
+        "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
+    } else {
+        Write-Output "Skipping invalid entry during write: Key='${($_.Key)}', Value='${($_.Value)}'"
+    }
 } > $configFilePath
 
 # Output the consolidated variables for debugging
