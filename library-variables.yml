@@ -19,5 +19,7 @@ library_sets:
         value: "another-value-00"
       "Production Global - 01":
         value: "another-value-01"
-  DefaultVar:
+  DefaultVar:  # A global/default variable
     value: "Happy"
+  GlobalTimeout:  # Another global/default variable
+    value: 30
