@@ -85,6 +85,20 @@ jobs:
           . .\config.ps1
           ./script1.ps1
 
+  call-reusable-workflow:
+    needs: deploy
+    strategy:
+      matrix: ${{ fromJson(needs.create-environment-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/reusable-workflow.yml # Path to the reusable workflow
+    with:
+      environment: ${{ matrix.environment }} # Pass the environment as input if needed
+
+  final-steps:
+    needs: call-reusable-workflow
+    runs-on: windows-latest
+    strategy:
+      matrix: ${{ fromJson(needs.create-environment-matrix.outputs.matrix) }}
+    steps:
       - name: Run PowerShell Script 2
         shell: pwsh
         run: |
