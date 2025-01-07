@@ -8,66 +8,44 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
 }
 Import-Module powershell-yaml
 
-# Path to the library YAML file
+# Load and parse the YAML file
 $yamlPath = ".\library-variables.yml"
-
-# Load the YAML file
 $yamlContent = Get-Content -Raw -Path $yamlPath
-$librarySets = $yamlContent | ConvertFrom-Yaml
+$variables = (ConvertFrom-Yaml $yamlContent).library_sets
 
-# Fetch variables from the YAML file
-$variables = $librarySets.library_sets
-Write-Output "Loaded variables:"
-Write-Output ($variables | ConvertTo-Json -Depth 2)
-
-# Initialize a hashtable to store consolidated variables
+# Consolidate environment-specific and global variables
 $consolidatedVars = @{}
-
-# Step 1: Extract environment-specific variables
 foreach ($key in $variables.Keys) {
-    if ($variables[$key] -is [System.Collections.Hashtable] -and $variables[$key].environments) {
-        if ($variables[$key].environments.ContainsKey($environment)) {
-            $value = $variables[$key].environments[$environment].value
-            if (![string]::IsNullOrWhiteSpace($key) -and (![string]::IsNullOrWhiteSpace($value))) {
-                $consolidatedVars[$key] = $value
-            } else {
-                Write-Output "Skipping invalid entry: Key='$key', Value='$value'"
-            }
+    $value = $null
+    if ($variables[$key] -is [System.Collections.Hashtable]) {
+        if ($variables[$key].ContainsKey("environments") -and $variables[$key].environments.ContainsKey($environment)) {
+            $value = $variables[$key].environments[$environment]["value"]
+        } elseif ($variables[$key].ContainsKey("value") -and -not $variables[$key].ContainsKey("environments")) {
+            $value = $variables[$key]["value"]
         }
+    }
+    if (![string]::IsNullOrWhiteSpace($key) -and (![string]::IsNullOrWhiteSpace($value))) {
+        $consolidatedVars[$key] = $value
     }
 }
 
-# Step 2: Add default/global variables
-foreach ($key in $variables.Keys) {
-    if ($variables[$key] -is [System.Collections.Hashtable] -and $variables[$key].ContainsKey("value") -and -not $variables[$key].ContainsKey("environments")) {
-        $value = $variables[$key].value
-        if (![string]::IsNullOrWhiteSpace($key) -and (![string]::IsNullOrWhiteSpace($value))) {
-            $consolidatedVars[$key] = $value
-        } else {
-            Write-Output "Skipping invalid global entry: Key='$key', Value='$value'"
-        }
-    }
-}
-
-# Step 3: Exit if no variables were consolidated
+# Exit if no variables were consolidated
 if ($consolidatedVars.Count -eq 0) {
     Write-Output "No variables found for environment '$environment'. Exiting."
     exit 1
 }
 
-# Step 4: Write the consolidated variables to a PowerShell script
+# Write the consolidated variables to a PowerShell script
 $configFilePath = ".\config.ps1"
-Write-Output "Writing the following variables to ${configFilePath}:"
-
-# Write only validated entries to config.ps1
 $consolidatedVars.GetEnumerator() | ForEach-Object {
-    if (![string]::IsNullOrWhiteSpace($_.Key) -and (![string]::IsNullOrWhiteSpace($_.Value))) {
-        "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
+    $key = $_.Key
+    $value = $_.Value
+    if (![string]::IsNullOrWhiteSpace($key) -and (![string]::IsNullOrWhiteSpace($value))) {
+        "Set-Variable -Name '${key}' -Value '${value}'"
     } else {
-        Write-Output "Skipping invalid entry during write: Key='${($_.Key)}', Value='${($_.Value)}'"
+        Write-Output "Skipping invalid entry: Key='${key}', Value='${value}'"
     }
 } | Out-File -FilePath $configFilePath -Encoding UTF8
 
-# Output the consolidated variables for debugging
-Write-Output "Consolidated variables written to ${configFilePath}:"
-Write-Output ($consolidatedVars | ConvertTo-Json -Depth 2)
+Write-Output "Variables successfully written to ${configFilePath}."
+
