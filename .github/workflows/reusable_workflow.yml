@@ -9,7 +9,16 @@ on:
 
 jobs:
   reusable-task:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
-      - name: Perform Reusable Task
-        run: 'echo "Running reusable workflow for environment: ${{ inputs.environment }}"'
+      - name: Set Up Environment
+        shell: pwsh
+        run: |
+          echo "Setting up reusable workflow for environment: ${{ inputs.environment }}"
+
+      - name: Run PowerShell Command
+        shell: pwsh
+        run: |
+          echo "Running PowerShell command for environment: ${{ inputs.environment }}"
+          # Add your PowerShell commands here
+          ./script-reusable.ps1 -environment "${{ inputs.environment }}"
