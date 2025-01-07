@@ -59,15 +59,19 @@ if ($consolidatedVars.Count -eq 0) {
 $configFilePath = ".\config.ps1"
 Write-Output "Writing the following variables to ${configFilePath}:"
 
-# Write only validated entries to config.ps1
+# Create an array for valid Set-Variable commands
+$setVariableCommands = @()
 $consolidatedVars.GetEnumerator() | ForEach-Object {
     if (![string]::IsNullOrWhiteSpace($_.Key) -and $_.Value -ne $null -and (![string]::IsNullOrWhiteSpace($_.Value))) {
-        Write-Output "Key: '${($_.Key)}', Value: '${($_.Value)}'"
-        "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
+        $setVariableCommands += "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
+        Write-Output "Key: '${($_.Key)}', Value: '${($_.Value)}'" # Debugging output
     } else {
         Write-Output "Skipping invalid entry during write: Key='${($_.Key)}', Value='${($_.Value)}'"
     }
-} > $configFilePath
+}
+
+# Write only valid Set-Variable commands to the config.ps1 file
+$setVariableCommands | Out-File -FilePath $configFilePath -Encoding UTF8
 
 # Output the consolidated variables for debugging
 Write-Output "Consolidated variables written to ${configFilePath}:"
