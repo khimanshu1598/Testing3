@@ -12,4 +12,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Perform Reusable Task
-        run: echo "Running reusable workflow for environment: ${{ inputs.environment }}"
+        run: 'echo "Running reusable workflow for environment: ${{ inputs.environment }}"'
