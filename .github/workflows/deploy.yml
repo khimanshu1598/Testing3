@@ -1,0 +1,101 @@
+name: Deploy Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      ls6_global_00:
+        description: 'LS6 Global - 00'
+        type: boolean
+        default: false
+      ls6_global_01:
+        description: 'LS6 Global - 01'
+        type: boolean
+        default: false
+      prod_global_00:
+        description: 'Production Global - 00'
+        type: boolean
+        default: false
+      prod_global_01:
+        description: 'Production Global - 01'
+        type: boolean
+        default: false
+
+jobs:
+  create-environment-matrix:
+    runs-on: windows-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Build Environment Matrix
+        id: set-matrix
+        shell: pwsh
+        run: |
+          # Initialize an array for environments
+          $environments = @()
+          
+          # Define a mapping of inputs to environment names
+          $envMap = @{
+            "ls6_global_00" = "LS6 Global - 00"
+            "ls6_global_01" = "LS6 Global - 01"
+            "prod_global_00" = "Production Global - 00"
+            "prod_global_01" = "Production Global - 01"
+          }
+          
+          # Access inputs passed via environment variables
+          foreach ($key in $envMap.Keys) {
+              $envVariableName = $key.ToUpper()
+              $inputValue = (Get-Item -Path "Env:\$envVariableName").Value
+              if ($inputValue -eq 'true') {
+                  $environments += $envMap[$key]
+              }
+          }
+          
+          # Ensure the environments array is in the correct format for GitHub Actions
+          if ($environments.Count -eq 1) {
+              $matrixJson = @{ "include" = @(@{ "environment" = $environments[0] }) } | ConvertTo-Json -Depth 2 -Compress
+          } elseif ($environments.Count -gt 1) {
+              $matrixJson = @{ "include" = $environments | ForEach-Object { @{ "environment" = $_ } } } | ConvertTo-Json -Depth 2 -Compress
+          } else {
+              Write-Output "No environments selected. Exiting."
+              exit 1
+          }
+          
+          # Write the JSON to the output
+          Write-Output "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+    env:
+      ls6_global_00: ${{ inputs.ls6_global_00 }}
+      ls6_global_01: ${{ inputs.ls6_global_01 }}
+      prod_global_00: ${{ inputs.prod_global_00 }}
+      prod_global_01: ${{ inputs.prod_global_01 }}
+
+  deploy:
+    needs: create-environment-matrix
+    strategy:
+      matrix: ${{ fromJson(needs.create-environment-matrix.outputs.matrix) }}
+      max-parallel: 1
+      fail-fast: false
+    runs-on: windows-latest
+    environment: ${{ matrix.environment }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install PowerShell-YAML Module
+        shell: pwsh
+        run: Install-Module -Name powershell-yaml -Force -Scope CurrentUser
+
+      - name: Generate Environment-Specific Variables
+        shell: pwsh
+        run: ./generate-config.ps1 -environment "${{ matrix.environment }}"
+
+      - name: Execute PowerShell Script 1
+        shell: pwsh
+        run: |
+          . .\config.ps1
+          ./script1.ps1
+
+      - name: Execute PowerShell Script 2
+        shell: pwsh
+        run: |
+          . .\config.ps1
+          ./script2.ps1
