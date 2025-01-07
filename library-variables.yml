@@ -1,0 +1,23 @@
+library_sets:
+  CellName:
+    environments:
+      "LS6 Global - 00":
+        value: "Himanshu"
+      "LS6 Global - 01":
+        value: "Mradul"
+      "Production Global - 00":
+        value: "Mani"
+      "Production Global - 01":
+        value: "Brinda"
+  AnotherVar:
+    environments:
+      "LS6 Global - 00":
+        value: "another-value-00"
+      "LS6 Global - 01":
+        value: "another-value-01"
+      "Production Global - 00":
+        value: "another-value-00"
+      "Production Global - 01":
+        value: "another-value-01"
+  DefaultVar:
+    value: "Happy"
