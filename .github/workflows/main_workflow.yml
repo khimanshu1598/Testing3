@@ -52,11 +52,6 @@ jobs:
               $matrixJson = @{ "include" = $environments | ForEach-Object { @{ "environment" = $_ } } } | ConvertTo-Json -Depth 2 -Compress
           }
           Write-Output "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-    env:
-      LS6_GLOBAL_00: ${{ inputs.ls6_global_00 }}
-      LS6_GLOBAL_01: ${{ inputs.ls6_global_01 }}
-      PROD_GLOBAL_00: ${{ inputs.prod_global_00 }}
-      PROD_GLOBAL_01: ${{ inputs.prod_global_01 }}
 
       - name: Debug Generated Matrix
         run: 'echo "Generated Matrix: ${{ steps.set-matrix.outputs.matrix }}"'
