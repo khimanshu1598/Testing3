@@ -1,0 +1,15 @@
+name: Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+jobs:
+  reusable-task:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Perform Reusable Task
+        run: echo "Running reusable workflow for environment: ${{ inputs.environment }}"
