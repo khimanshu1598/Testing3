@@ -48,7 +48,15 @@ if ($consolidatedVars.Count -eq 0) {
 # Step 4: Write the consolidated variables to a PowerShell script
 $configFilePath = ".\config.ps1"
 Write-Output "Writing consolidated variables to ${configFilePath}"
-$consolidatedVars.GetEnumerator() | ForEach-Object { "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'" } > $configFilePath
+
+# Validate keys and values before writing to config.ps1
+$consolidatedVars.GetEnumerator() | ForEach-Object {
+    if (![string]::IsNullOrWhiteSpace($_.Key) -and $_.Value -ne $null) {
+        "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
+    } else {
+        Write-Output "Skipping invalid entry: Key='${($_.Key)}', Value='${($_.Value)}'"
+    }
+} > $configFilePath
 
 # Output the consolidated variables for debugging
 Write-Output "Consolidated variables written to ${configFilePath}:"
