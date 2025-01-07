@@ -32,29 +32,32 @@ jobs:
         run: |
           $environments = @()
           $envMap = @{
-            "LS6_GLOBAL_00" = "LS6 Global - 00"
-            "LS6_GLOBAL_01" = "LS6 Global - 01"
-            "PROD_GLOBAL_00" = "Production Global - 00"
-            "PROD_GLOBAL_01" = "Production Global - 01"
+            "ls6_global_00" = "LS6 Global - 00"
+            "ls6_global_01" = "LS6 Global - 01"
+            "prod_global_00" = "Production Global - 00"
+            "prod_global_01" = "Production Global - 01"
           }
           foreach ($key in $envMap.Keys) {
-              $inputValue = (Get-Item -Path "Env:\$key").Value
+              $envVariableName = $key.ToUpper()
+              $inputValue = (Get-Item -Path "Env:\$envVariableName").Value
               if ($inputValue -eq 'true') {
                   $environments += $envMap[$key]
               }
           }
-          if ($environments.Count -eq 0) {
-              Write-Output "No environments selected. Exiting gracefully."
-              $matrixJson = "{}"
-          } elseif ($environments.Count -eq 1) {
+          if ($environments.Count -eq 1) {
               $matrixJson = @{ "include" = @(@{ "environment" = $environments[0] }) } | ConvertTo-Json -Depth 2 -Compress
-          } else {
+          } elseif ($environments.Count -gt 1) {
               $matrixJson = @{ "include" = $environments | ForEach-Object { @{ "environment" = $_ } } } | ConvertTo-Json -Depth 2 -Compress
+          } else {
+              Write-Output "No environments selected. Exiting."
+              exit 1
           }
           Write-Output "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Debug Generated Matrix
-        run: 'echo "Generated Matrix: ${{ steps.set-matrix.outputs.matrix }}"'
+    env:
+      ls6_global_00: ${{ inputs.ls6_global_00 }}
+      ls6_global_01: ${{ inputs.ls6_global_01 }}
+      prod_global_00: ${{ inputs.prod_global_00 }}
+      prod_global_01: ${{ inputs.prod_global_01 }}
 
   deploy:
     needs: create-environment-matrix
@@ -82,21 +85,6 @@ jobs:
           . .\config.ps1
           ./script1.ps1
 
-  call-reusable-workflow:
-    needs: deploy
-    strategy:
-      matrix: ${{ fromJson(needs.create-environment-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/reusable_workflow.yml
-    with:
-      environment: ${{ matrix.environment }}
-    name: Call Reusable Workflow for ${{ matrix.environment }}
-
-  final-steps:
-    needs: call-reusable-workflow
-    runs-on: windows-latest
-    strategy:
-      matrix: ${{ fromJson(needs.create-environment-matrix.outputs.matrix) }}
-    steps:
       - name: Run PowerShell Script 2
         shell: pwsh
         run: |
