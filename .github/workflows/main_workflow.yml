@@ -44,20 +44,18 @@ jobs:
                   $environments += $envMap[$key]
               }
           }
-          if ($environments.Count -eq 1) {
+          if ($environments.Count -eq 0) {
+              Write-Output "No environments selected. Exiting gracefully."
+              $matrixJson = "{}"
+          } elseif ($environments.Count -eq 1) {
               $matrixJson = @{ "include" = @(@{ "environment" = $environments[0] }) } | ConvertTo-Json -Depth 2 -Compress
-          } elseif ($environments.Count -gt 1) {
-              $matrixJson = @{ "include" = $environments | ForEach-Object { @{ "environment" = $_ } } } | ConvertTo-Json -Depth 2 -Compress
           } else {
-              Write-Output "No environments selected. Exiting."
-              exit 1
+              $matrixJson = @{ "include" = $environments | ForEach-Object { @{ "environment" = $_ } } } | ConvertTo-Json -Depth 2 -Compress
           }
           Write-Output "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-    env:
-      ls6_global_00: ${{ inputs.ls6_global_00 }}
-      ls6_global_01: ${{ inputs.ls6_global_01 }}
-      prod_global_00: ${{ inputs.prod_global_00 }}
-      prod_global_01: ${{ inputs.prod_global_01 }}
+
+      - name: Debug Generated Matrix
+        run: echo "Generated Matrix: ${{ steps.set-matrix.outputs.matrix }}"
 
   deploy:
     needs: create-environment-matrix
