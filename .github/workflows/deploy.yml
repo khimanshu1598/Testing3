@@ -30,18 +30,13 @@ jobs:
         id: set-matrix
         shell: pwsh
         run: |
-          # Initialize an array for environments
           $environments = @()
-          
-          # Define a mapping of inputs to environment names
           $envMap = @{
             "ls6_global_00" = "LS6 Global - 00"
             "ls6_global_01" = "LS6 Global - 01"
             "prod_global_00" = "Production Global - 00"
             "prod_global_01" = "Production Global - 01"
           }
-          
-          # Access inputs passed via environment variables
           foreach ($key in $envMap.Keys) {
               $envVariableName = $key.ToUpper()
               $inputValue = (Get-Item -Path "Env:\$envVariableName").Value
@@ -49,8 +44,6 @@ jobs:
                   $environments += $envMap[$key]
               }
           }
-          
-          # Ensure the environments array is in the correct format for GitHub Actions
           if ($environments.Count -eq 1) {
               $matrixJson = @{ "include" = @(@{ "environment" = $environments[0] }) } | ConvertTo-Json -Depth 2 -Compress
           } elseif ($environments.Count -gt 1) {
@@ -59,8 +52,6 @@ jobs:
               Write-Output "No environments selected. Exiting."
               exit 1
           }
-          
-          # Write the JSON to the output
           Write-Output "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
     env:
       ls6_global_00: ${{ inputs.ls6_global_00 }}
@@ -84,17 +75,17 @@ jobs:
         shell: pwsh
         run: Install-Module -Name powershell-yaml -Force -Scope CurrentUser
 
-      - name: Generate Environment-Specific Variables
+      - name: Generate Environment-Specific Config
         shell: pwsh
         run: ./generate-config.ps1 -environment "${{ matrix.environment }}"
 
-      - name: Execute PowerShell Script 1
+      - name: Run PowerShell Script 1
         shell: pwsh
         run: |
           . .\config.ps1
           ./script1.ps1
 
-      - name: Execute PowerShell Script 2
+      - name: Run PowerShell Script 2
         shell: pwsh
         run: |
           . .\config.ps1
