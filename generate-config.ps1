@@ -27,7 +27,12 @@ $consolidatedVars = @{}
 foreach ($key in $variables.Keys) {
     if ($variables[$key] -is [System.Collections.Hashtable] -and $variables[$key].environments) {
         if ($variables[$key].environments.ContainsKey($environment)) {
-            $consolidatedVars[$key] = $variables[$key].environments[$environment].value
+            $value = $variables[$key].environments[$environment].value
+            if (![string]::IsNullOrWhiteSpace($key) -and $value -ne $null) {
+                $consolidatedVars[$key] = $value
+            } else {
+                Write-Output "Skipping invalid entry: Key='$key', Value='$value'"
+            }
         }
     }
 }
@@ -35,7 +40,12 @@ foreach ($key in $variables.Keys) {
 # Step 2: Add default/global variables
 foreach ($key in $variables.Keys) {
     if ($variables[$key] -is [System.Collections.Hashtable] -and $variables[$key].ContainsKey("value") -and -not $variables[$key].ContainsKey("environments")) {
-        $consolidatedVars[$key] = $variables[$key].value
+        $value = $variables[$key].value
+        if (![string]::IsNullOrWhiteSpace($key) -and $value -ne $null) {
+            $consolidatedVars[$key] = $value
+        } else {
+            Write-Output "Skipping invalid global entry: Key='$key', Value='$value'"
+        }
     }
 }
 
@@ -49,13 +59,9 @@ if ($consolidatedVars.Count -eq 0) {
 $configFilePath = ".\config.ps1"
 Write-Output "Writing consolidated variables to ${configFilePath}"
 
-# Validate keys and values before writing to config.ps1
+# Write validated entries to config.ps1
 $consolidatedVars.GetEnumerator() | ForEach-Object {
-    if (![string]::IsNullOrWhiteSpace($_.Key) -and $_.Value -ne $null) {
-        "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
-    } else {
-        Write-Output "Skipping invalid entry: Key='${($_.Key)}', Value='${($_.Value)}'"
-    }
+    "Set-Variable -Name '${($_.Key)}' -Value '${($_.Value)}'"
 } > $configFilePath
 
 # Output the consolidated variables for debugging
