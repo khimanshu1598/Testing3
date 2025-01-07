@@ -47,9 +47,9 @@ if ($consolidatedVars.Count -eq 0) {
 
 # Step 4: Write the consolidated variables to a PowerShell script
 $configFilePath = ".\config.ps1"
-Write-Output "Writing consolidated variables to $configFilePath"
+Write-Output "Writing consolidated variables to `${configFilePath}`"
 $consolidatedVars.GetEnumerator() | ForEach-Object { "`${($_.Key)} = '`${($_.Value)}'" } > $configFilePath
 
 # Output the consolidated variables for debugging
-Write-Output "Consolidated variables written to $configFilePath:"
+Write-Output "Consolidated variables written to `${configFilePath}`:"
 Write-Output ($consolidatedVars | ConvertTo-Json -Depth 2)
