@@ -1,235 +1,39 @@
+# $SqlPackageFilePath="C:\Program Files (x86)\Microsoft SQL Server\140\DAC\bin\SqlPackage.exe"
+$SqlPackageFilePath="C:\Program Files (x86)\Microsoft SQL Server\130\DAC\bin\SqlPackage.exe"
+#split out target servers
+$targetServerCollection = @()
+$targetServerCollection = $TargetServers -split ","
+Write-Verbose "Target Server Collection: $targetServerCollecton"
 
-# This is POC workflow to verify DACPAC Octopus pipeline to GHA migration work
-name: Download SqlPackage
+#split out database names
+$databaseNameCollection = @()
+$databaseNameCollection = $DatabaseNames -split ","
+Write-Verbose "Database Collection: $databaseNameCollection"
 
-on:
-  pull_request:
-    branches:
-      - "main"
-    paths:
-      - "od-gha-files/*"
-  workflow_dispatch:
-  push:
-    branches:
-      - "release/poc-gha-od-testing"
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
+Write-Output "Processing starting..."
 
-env:
-  DACPAC_UTILITY_PATH: "od-gha-files"
+$SecurePassword = ConvertTo-SecureString -String $SQL_PASSWORD -AsPlainText -Force
+$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $SQL_PASSWORD, $SecurePassword
 
-jobs:
-  # Testing connectivity using dockerfile without pushing it
-  # docker-image-build:
-  #   runs-on: [ self-hosted, linux, runners-ap-southeast-2]
-  #   steps:
-  #     - name: Build
-  #       id: build-only
-  #       uses: xero-internal/github-actions/docker-image-build-push@v1.0
-  #       with:
-  #         version: "latest"
-  #         docker-image-name: "build-and-push-docker-test"
-  #         docker-file: "od-gha-files/Dockerfile"
-  test-ssm:
-    runs-on: [self-hosted, linux, x64, runners-us-west-2]
-    environment: uat
-    steps:
-      - name: "Checkout"
-        uses: actions/checkout@v4
+foreach ($targetServer in $targetServerCollection) {
+    foreach ($databaseName in $databaseNameCollection) {
 
-      - name: Assume OIDC role
-        id: assume_oidc_role
-        uses: xero-internal/github-actions/aws-assume-oidc@main
-        with:
-          oidc-role-to-assume: ${{ vars.oidc_role_arn }}
-          target-role-to-assume: ${{ vars.deployment_role_arn }}
-          aws-region: us-west-2
+        # $sqlPackageCommand = "/Action:$Action /SourceServerName:$targetServer /SourceDatabaseName:$databaseName /TargetFile:C:/test.dacpac"
+        # $fullCommand = "& `"$SqlPackageFilePath`" $sqlPackageCommand"
+        # Write-Output "Executing full sqlpackage.exe command: $fullCommand"
 
-    #   - name: Build Container Image
-    #     run: |
-    #       docker build -t build-and-push-docker-test -f od-gha-files/Dockerfile .
+        # Construct the connection string with SQL_USER and SQL_PASSWORD
+        $connectionString = "Server=$targetServer;Database=$databaseName;User ID=$SQL_USER;Password=$($Credential.GetNetworkCredential().Password);"
 
-    #   - name: check local images
-    #     run: |
-    #       docker images
+        # Construct the sqlpackage command, including only the SourceConnectionString (without SourceServerName and SourceDatabaseName)
+        $sqlPackageCommand = "/Action:$Action /TargetFile:C:/test.dacpac /SourceConnectionString:`"$connectionString`""
 
-    #   - name: Upload Packages to S3
-    #     run: |
-    #       docker run --env AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }} --env AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }} --env AWS_SESSION_TOKEN=${{ env.AWS_SESSION_TOKEN }} build-and-push-docker-test /bin/bash -c "aws s3 cp /mnt/nugetpackage s3://mandeeptest1/EmployeeInvitation/ --recursive"
-        # env:
-        #   AWS_DEFAULT_REGION: us-west-2
-        #   AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-        #   AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-        #   AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+        # Create the full command
+        $fullCommand = "& `"$SqlPackageFilePath`" $sqlPackageCommand"
 
-      # - name: Run SSM document on EC2
-      #   run: |
-      #     aws ssm send-command --document-name "$SSM_DOCUMENT_NAME" --targets "Key=InstanceIds,Values=$INSTANCE_ID" --parameters 'commands=["Write-Output \"Items in C:/ is below:-\"; Get-ChildItem -Path C:\ -Recurse -ErrorAction SilentlyContinue | Select-Object FullName"]' --output text
+        # Execute the command
+        Invoke-Expression $fullCommand
+    }
+}
 
-      #   env:
-      #     INSTANCE_ID: "i-01a305a321b8e8a07"
-      #     SSM_DOCUMENT_NAME: "AWS-RunPowerShellScript"
-      #     COMMAND: "echo 'Testing the SSM permission and flow'"
-
-
-      - name: Test SSM Doc via script
-        uses: ./.github/actions/dacpac-utility-ssm
-        with:
-          aws_region: us-west-2
-          script_path: "${{ env.DACPAC_UTILITY_PATH }}/dacpac-utility-test.ps1"
-          instance_name: GSQN-45VQKN
-          script_variables: >-
-            Action=Extract
-            TargetServers=employeeinvitation.db.livestage6.test.xero.com
-            DatabaseNames=EmployeeInvitation
-            SQL_USER=${{ secrets.SQL_USER }}
-            SQL_PASSWORD=${{ secrets.SQL_PASSWORD }}
-
-      # # Install Mono (needed to run nuget.exe on Linux)
-      # - name: Install Mono
-      #   run: |
-      #     # Download the Mono Project's GPG key
-      #     sudo rpm --import "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF" || \
-      #     sudo rpm --import "https://download.mono-project.com/repo/xamarin.gpg"
-
-      #     # Add the Mono Project's repository
-      #     sudo dnf config-manager --add-repo https://download.mono-project.com/repo/centos8-stable.repo
-
-      #     # Install mono-devel
-      #     sudo dnf install -y mono-devel
-
-      #     sudo dnf install -y mono-devel
-
-      # # Download NuGet CLI (nuget.exe)
-      # - name: Download NuGet CLI (nuget.exe)
-      #   run: |
-      #     sudo curl -L https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -o /usr/local/bin/nuget.exe
-      #     sudo chmod +x /usr/local/bin/nuget.exe  # Make nuget.exe executable
-
-      # # # Create a symbolic link for nuget in /usr/local/bin
-      # # - name: Add NuGet CLI to PATH
-      # #   run: |
-      # #     sudo ln -sf /usr/local/bin/nuget.exe /usr/local/bin/nuget
-      # #     echo "Updated PATH: $PATH"
-
-      # # Create a wrapper script to run nuget.exe with Mono
-      # - name: Create NuGet Wrapper Script
-      #   run: |
-      #     echo '#!/bin/bash' | sudo tee /usr/local/bin/nuget > /dev/null
-      #     echo 'mono /usr/local/bin/nuget.exe "$@"' | sudo tee -a /usr/local/bin/nuget > /dev/null
-      #     sudo chmod +x /usr/local/bin/nuget
-
-      # # # Verify NuGet CLI is accessible and installed using nuget help
-      # # #- name: Verify NuGet CLI Installation
-      # # #  run: |
-      # # #    nuget help
-
-      # # Add Artifactory as a NuGet source
-      # - name: Add Artifactory as a NuGet source
-      #   run: |
-      #     nuget sources Add -Name Artifactory -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -Username ${{ secrets.ARTIFACTORY_USER }} -Password ${{ secrets.ARTIFACTORY_PASSWORD }}
-
-      # # Verify the added NuGet source
-      # - name: Verify NuGet source
-      #   run: |
-      #     nuget sources List  # List sources to verify Artifactory was added successfully
-
-      # # Install the 'Employee.Invitation.Database.485.0.0' package from Artifactory
-      # - name: Installing Employee.Invitation.Database.485.0.0 Package
-      #   run: |
-      #     sudo mkdir -p /opt/EmployeeInvitation
-      #     #nuget list Employee.Invitation.Database -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -Verbosity detailed
-      #     sudo nuget install Employee.Invitation.Database -Version 485.0.0 -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -OutputDirectory /opt/EmployeeInvitation
-
-      # # Install the 'DAC Deploy Contributor Package' from Artifactory
-      # - name: Installing DAC Deploy Contributor Package
-      #   run: |
-      #     #nuget list Employee.Invitation.Database -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -Verbosity detailed
-      #     sudo nuget install XeroDeploymentContributors -Version 0.0.33 -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -OutputDirectory /opt/EmployeeInvitation
-
-
-      # # List the contents of the /opt/EmployeeInvitation directory
-      # - name: List files in /opt/EmployeeInvitation/ Directory
-      #   run: |
-      #     sudo ls -l /opt/EmployeeInvitation/Employee.Invitation.Database.485.0.0
-      #     sudo ls -l /opt/EmployeeInvitation/XeroDeploymentContributors.0.0.33
-
-      # # Upload Packages to S3
-      # - name: Upload Packages to S3
-      #   run: |
-      #     aws s3 cp /opt/EmployeeInvitation s3://mandeeptest1/EmployeeInvitation/ --recursive
-
-      # # Download the Packages from S3 to Target Server
-      # - name: Run SSM command to download from S3
-      #   run: |
-      #     INSTANCE_ID="i-01a305a321b8e8a07"  # Replace with your EC2 instance ID
-      #     S3_BUCKET="mandeeptest1"
-      #     TARGET_DIRECTORY="C:\\EmployeeInvitation"
-
-      #     # Send the command via SSM to download files from S3 to Windows EC2 instance
-      #     aws ssm send-command \
-      #       --instance-ids "$INSTANCE_ID" \
-      #       --document-name "AWS-RunPowerShellScript" \
-      #       --comment "Download S3 files to Windows EC2 instance" \
-      #       --parameters commands='[
-      #         "if (-not (Test-Path \"C:\\EmployeeInvitation\")) { New-Item -ItemType Directory -Force -Path \"C:\\EmployeeInvitation\" }",
-      #         "aws s3 cp s3://'"$S3_BUCKET"'/EmployeeInvitation/ C:\\EmployeeInvitation --recursive"
-      #       ]' \
-      #       --timeout-seconds 600 \
-      #       --max-concurrency "50" \
-      #       --max-errors "0" \
-      #       --region us-west-2  # Replace with your AWS region
-
-
-
-      # # Checking whether files are pulled correctly or not.
-      # - name: Verify files on Windows EC2 instance
-      #   run: |
-      #     INSTANCE_ID="i-01a305a321b8e8a07"  # Replace with your EC2 instance ID
-      #     TARGET_DIRECTORY="C:\\EmployeeInvitation"  # Windows path with double backslashes
-
-      #     echo "Verifying if files exist at $TARGET_DIRECTORY on EC2 instance..."
-
-      #     aws ssm send-command \
-      #       --instance-ids "$INSTANCE_ID" \
-      #       --document-name "AWS-RunPowerShellScript" \
-      #       --comment "Check if files were downloaded" \
-      #       --parameters commands='[
-      #         "if (Test-Path \"C:\\EmployeeInvitation\") {
-      #           Write-Host \"Directory Exists: C:\\EmployeeInvitation\";
-      #           Get-ChildItem \"C:\\EmployeeInvitation\"
-      #         } else {
-      #           Write-Host \"Directory not found\"
-      #         }"
-      #       ]' \
-      #       --timeout-seconds 600 \
-      #       --max-concurrency "50" \
-      #       --max-errors "0" \
-      #       --region us-west-2  # Change this to your AWS region
-
-      # Deleting the files after pulling them from S3
-      - name: Delete `C:\EmployeeInvitation` if it exists on Windows EC2
-        run: |
-          INSTANCE_ID="i-01a305a321b8e8a07"  # Replace with your EC2 instance ID
-
-          echo "Checking and deleting 'C:\EmployeeInvitation' on EC2 instance if it exists..."
-
-          aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunPowerShellScript" \
-            --comment "Delete EmployeeInvitation directory if it exists" \
-            --parameters commands='[
-              "if (Test-Path \"C:\\EmployeeInvitation\") {
-                Write-Host \"Directory exists. Deleting...\";
-                Remove-Item -Path \"C:\\EmployeeInvitation\" -Recurse -Force;
-                Write-Host \"Directory Deleted.\";
-              } else {
-                Write-Host \"Directory not found. Nothing to delete.\";
-              }"
-            ]' \
-            --timeout-seconds 600 \
-            --max-concurrency "50" \
-            --max-errors "0" \
-            --region us-west-2  # Change this to your AWS region
+Write-Output "Processing Complete."
