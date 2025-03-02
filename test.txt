@@ -1,119 +1,83 @@
-name: 'SSM: DACPAC Utility'
-inputs:
-  instance_name:
-    description: "The name of the instances on which the script will be invoked."
-    required: true
-  aws_region:
-    description: "AWS region where the cluster is provisioned."
-    required: true
-  script_path:
-    description: "Local path to the DACPAC script to be transferred."
-    required: true
-  config_path:
-    description: "Local path to the UAT configuration file."
-    required: true
-  timeout_seconds:
-    description: "If this time is reached and the script hasn't already started running, it won't run."
-    required: false
-    default: "60"
-  cli_read_timeout_seconds:
-    description: "The maximum socket read time in seconds. If the value is set to 0, the socket read will not timeout."
-    required: false
-    default: "900"
+name: Deploy DACPAC Utility to Target Instance
 
-runs:
-  using: composite
-  steps:
-    - name: "Transfer DACPAC Script & UAT Config to Target"
-      shell: bash
-      run: |
-        remote_script_file="C:/Temp/dacpac-utility.ps1"
-        remote_uat_file="C:/Temp/uat.ps1"
-        commands_list_file="ssm-commands.ps1"
-        commands_json_file="ssm-commands.json"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/poc-gha-od-testing"
 
-        echo "Finding the target EC2 instance..."
-        instance_ids=$(aws ec2 describe-instances \
-          --region "${{ inputs.aws_region }}" \
-          --filters "Name=tag:Name,Values=${{ inputs.instance_name }}" "Name=instance-state-name,Values=running" \
-          --query "Reservations[].Instances[].InstanceId" --output text)
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
 
-        if [[ -z "$instance_ids" ]]; then
-          echo "Error: No running instances found with name '${{ inputs.instance_name }}'"
-          exit 1
-        fi
+env:
+  DACPAC_UTILITY_PATH: "od-gha-files"
 
-        echo "Transferring files to target EC2 instance..."
-        aws ssm send-command \
-          --region "${{ inputs.aws_region }}" \
-          --instance-ids "$instance_ids" \
-          --document-name "AWS-RunPowerShellScript" \
-          --parameters commands='[
-            "Write-Host \"Creating Temp Directory...\"",
-            "New-Item -Path C:/Temp -ItemType Directory -Force",
-            "[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"'$(base64 -w 0 "${{ inputs.script_path }}")'\")) | Out-File $remote_script_file",
-            "[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"'$(base64 -w 0 "${{ inputs.config_path }}")'\")) | Out-File $remote_uat_file",
-            "Write-Host \"Scripts transferred successfully\""
-          ]' \
-          --timeout-seconds 300 \
-          --max-concurrency "50" \
-          --max-errors "0" \
-          --query "Command.CommandId" \
-          --output text
+jobs:
+  test-ssm:
+    runs-on: [self-hosted, linux, x64, runners-us-west-2]
+    environment: uat
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
 
-    - name: "Verify File Transfer on Target Instance"
-      shell: bash
-      run: |
-        echo "Verifying file existence on EC2 instance..."
-        aws ssm send-command \
-          --region "${{ inputs.aws_region }}" \
-          --instance-ids "$instance_ids" \
-          --document-name "AWS-RunPowerShellScript" \
-          --parameters commands='[
-            "Write-Host \"Checking if scripts exist...\"",
-            "if (Test-Path C:/Temp/dacpac-utility.ps1) { Write-Host \"dacpac-utility.ps1 exists\" } else { Write-Host \"ERROR: dacpac-utility.ps1 missing!\"; exit 1 }",
-            "if (Test-Path C:/Temp/uat.ps1) { Write-Host \"uat.ps1 exists\" } else { Write-Host \"ERROR: uat.ps1 missing!\"; exit 1 }",
-            "Write-Host \"File Transfer Verified Successfully.\""
-          ]' \
-          --timeout-seconds 300 \
-          --max-concurrency "50" \
-          --max-errors "0" \
-          --query "Command.CommandId" \
-          --output text
+      - name: "Assume OIDC Role"
+        id: assume_oidc_role
+        uses: abc-internal/github-actions/aws-assume-oidc@main
+        with:
+          oidc-role-to-assume: ${{ vars.oidc_role_arn }}
+          target-role-to-assume: ${{ vars.deployment_role_arn }}
+          aws-region: us-west-2
 
-    - name: "Preview UAT Configuration File (uat.ps1)"
-      shell: bash
-      run: |
-        echo "Retrieving uat.ps1 contents..."
-        aws ssm send-command \
-          --region "${{ inputs.aws_region }}" \
-          --instance-ids "$instance_ids" \
-          --document-name "AWS-RunPowerShellScript" \
-          --parameters commands='[
-            "Write-Host \"Displaying uat.ps1 Contents...\"",
-            "Get-Content C:/Temp/uat.ps1"
-          ]' \
-          --timeout-seconds 300 \
-          --max-concurrency "50" \
-          --max-errors "0" \
-          --query "Command.CommandId" \
-          --output text
+      - name: "Transfer Scripts to Target Instance"
+        uses: ./.github/actions/dacpac-utility-ssm
+        with:
+          aws_region: us-west-2
+          script_path: "${{ env.DACPAC_UTILITY_PATH }}/dacpac-utility.ps1"
+          config_path: "${{ env.DACPAC_UTILITY_PATH }}/uat.ps1"
+          instance_name: GSQN-45VQKN
 
-    # - name: "Execute DACPAC Utility (Disabled for now)"
-    #   shell: bash
-    #   run: |
-    #     echo "Skipping execution for now..."
-    #     # Uncomment this block when you are ready to execute the script
-    #     # aws ssm send-command \
-    #     #   --region "${{ inputs.aws_region }}" \
-    #     #   --instance-ids "$instance_ids" \
-    #     #   --document-name "AWS-RunPowerShellScript" \
-    #     #   --parameters commands='[
-    #     #     "Write-Host \"Executing dacpac-utility.ps1...\"",
-    #     #     "Start-Process powershell.exe -ArgumentList \"-File C:/Temp/dacpac-utility.ps1 -Config C:/Temp/uat.ps1\" -NoNewWindow -Wait"
-    #     #   ]' \
-    #     #   --timeout-seconds 600 \
-    #     #   --max-concurrency "50" \
-    #     #   --max-errors "0" \
-    #     #   --query "Command.CommandId" \
-    #     #   --output text
+      - name: "Verify File Transfer on Target Instance"
+        run: |
+          instance_id=$(aws ec2 describe-instances \
+            --region us-west-2 \
+            --filters "Name=tag:Name,Values=GSQN-45VQKN" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" --output text)
+
+          aws ssm send-command \
+            --region us-west-2 \
+            --instance-ids "$instance_id" \
+            --document-name "AWS-RunPowerShellScript" \
+            --parameters commands='[
+              "Write-Host \"Checking if scripts exist...\"",
+              "if (Test-Path C:/Temp/dacpac-utility.ps1) { Write-Host \"dacpac-utility.ps1 exists\" } else { Write-Host \"ERROR: dacpac-utility.ps1 missing!\"; exit 1 }",
+              "if (Test-Path C:/Temp/uat.ps1) { Write-Host \"uat.ps1 exists\" } else { Write-Host \"ERROR: uat.ps1 missing!\"; exit 1 }",
+              "Write-Host \"File Transfer Verified Successfully.\""
+            ]' \
+            --timeout-seconds 300 \
+            --max-concurrency "50" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text
+
+      - name: "Preview UAT Configuration File (uat.ps1)"
+        run: |
+          instance_id=$(aws ec2 describe-instances \
+            --region us-west-2 \
+            --filters "Name=tag:Name,Values=GSQN-45VQKN" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" --output text)
+
+          aws ssm send-command \
+            --region us-west-2 \
+            --instance-ids "$instance_id" \
+            --document-name "AWS-RunPowerShellScript" \
+            --parameters commands='[
+              "Write-Host \"Displaying uat.ps1 Contents...\"",
+              "Get-Content C:/Temp/uat.ps1"
+            ]' \
+            --timeout-seconds 300 \
+            --max-concurrency "50" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text
