@@ -1,51 +1,513 @@
-# Define deployment actions (Choose one: DeployReport, Script, Publish)
-$Action = "DeployReport"
+---
+name: 'SSM: DACPAC Utility'
+inputs:
+  instance_name:
+    description: "The name of the instances, on which the script will be invoked."
+    required: true
+  instance_id:
+    description: "The id of the instances, on which the script will be invoked."
+    required: false
+  aws_region:
+    description: "AWS region where the cluster in question has been provisioned to."
+    required: true
+  script_path:
+    description: "Local path to the script to be invoked (relative to repo root)."
+    required: true
+  script_variables:
+    description: "Local scope variables to set prior to invoking the script."
+    required: false
+  timeout_seconds:
+    description: "If this time is reached and the script hasn’t already started running, it won’t run."
+    required: false
+    default: "60"
+  cli_read_timeout_seconds:
+    description: "The maximum socket read time in seconds. If the value is set to 0, the socket read will not timeout."
+    required: false
+    default: "900" # 15 minutes
+  config_path:
+    description: "Local path to the UAT configuration file."
+    required: true
 
-# Path to the DACPAC file to be deployed
-$DacpacFilePath = "C:\abc\releases\EmployeeInvitation\Employee.Invitation.Database.Build.dacpac"
+runs:
+  using: composite
+  steps:
+    - name: "Retrieve Instance ID from Name"
+      shell: bash
+      run: |
+        echo "Finding the target EC2 instance..."
+        instance_id=$(aws ec2 describe-instances --region "${{ inputs.aws_region }}" --filters "Name=tag:Name,Values=${{ inputs.instance_name }}" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].InstanceId" --output text)
+        if [[ -z "$instance_id" ]]; then
+          echo "Error: No running instances found with name '${{ inputs.instance_name }}'"
+          exit 1
+        fi
+        echo "Instance ID: $instance_id"
+        echo "INSTANCE_ID=$instance_id" >> $GITHUB_ENV
 
-# Path where artifacts will be downloaded
-$ArtifactDownloadFilePath = "C:\abc\releases\databases\EmployeeInvitation"
+    - name: "Transfer DACPAC Script & UAT Config to Target"
+      shell: bash
+      run: |
+        # ... (other variables) ...
 
-# Database name
-$DatabaseName = "EmployeeInvitation"
+        echo "Transferring files to target EC2 instance..."
+        command_id=$(cd od-gha-files && aws ssm send-command \  # Change working directory to od-gha-files
+          --region "${{ inputs.aws_region }}" \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunPowerShellScript" \  # Add the missing --document-name argument
+          --parameters commands="[
+            'Write-Host \"Creating Temp Directory...\"',
+            'New-Item -Path C:/Temp -ItemType Directory -Force',
+            '[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"$(base64 -w 0 \"dacpac-utility.ps1\")\")) | Out-File \"$remote_script_file\"',
+            '[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"$(base64 -w 0 \"uat.ps1\")\")) | Out-File \"$remote_uat_file\"',
+            'Write-Host \"Scripts transferred successfully\"'
+          ]" \
+          --timeout-seconds 300 \
+          --max-concurrency "50" \
+          --max-errors "0" \
+          --query "Command.CommandId" \
+          --output text)
+        echo "TRANSFER_FILES_COMMAND_ID=$command_id" >> $GITHUB_ENV
 
-# Path to the Publish Profile XML
-$PublishProfileFilePath = "C:\abc\releases\databases\EmployeeInvitation\abc-uat.publish.xml"
+        aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID"
 
-# Publish profile file name
-$PublishProfileFileName = "abc-uat.publish.xml"
+    - name: "Get Transfer Files Output"
+      shell: bash
+      run: |
+        aws ssm get-command-invocation \
+          --region "${{ inputs.aws_region }}" \
+          --command-id "${{ env.TRANSFER_FILES_COMMAND_ID }}" \
+          --instance-id "$INSTANCE_ID" \
+          --query 'StandardOutputContent' --output text # Only output the relevant content
 
-# Target SQL Server instance
-$TargetServers = "employeeinvitation.db.livestage6.test.abc.com"
+    - name: "Verify File Transfer on Target Instance"
+      shell: bash
+      run: |
+        echo "Verifying file existence on EC2 instance..."
+        command_id=$(aws ssm send-command \
+          --region "${{ inputs.aws_region }}" \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunPowerShellScript" \
+          --parameters commands='[
+            "Write-Host \"Checking if scripts exist...\"",
+            "if (Test-Path C:/Temp/dacpac-utility.ps1) { Write-Host \"dacpac-utility.ps1 exists\" } else { Write-Host \"ERROR: dacpac-utility.ps1 missing!\"; exit 1 }",
+            "if (Test-Path C:/Temp/uat.ps1) { Write-Host \"uat.ps1 exists\" } else { Write-Host \"ERROR: uat.ps1 missing!\"; exit 1 }",
+            "Write-Host \"File Transfer Verified Successfully.\""
+          ]' \
+          --timeout-seconds 300 \
+          --max-concurrency "50" \
+          --max-errors "0" \
+          --query "Command.CommandId" \
+          --output text)
+        echo "VERIFY_FILE_TRANSFER_COMMAND_ID=$command_id" >> $GITHUB_ENV
 
-# Path to the deployment report file
-$DeployReportFilePath = "C:\abc\releases\databases\EmployeeInvitation\deployreports\LS6_Global-01.EmployeeInvitation.$($OctopusReleaseNumber).deployreport.xml"
+        aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID"
 
-# Path to SqlPackage.exe (Ensure this version exists on the target machine)
-$SqlPackagePath = "C:\Program Files (x86)\Microsoft SQL Server\130\DAC\bin\SqlPackage.exe"
+    - name: "Get Verify File Transfer Output"
+      shell: bash
+      run: |
+        aws ssm get-command-invocation \
+          --region "${{ inputs.aws_region }}" \
+          --command-id "${{ env.VERIFY_FILE_TRANSFER_COMMAND_ID }}" \
+          --instance-id "$INSTANCE_ID" \
+          --query 'StandardOutputContent' --output text # Only output the relevant content
 
-# Additional deployment properties for SQLPackage
-$SqlPackageDeployProperties = @{
-    "AdditionalDeploymentContributorArguments" = "CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
-}
+    - name: "Preview UAT Configuration File (uat.ps1)"
+      shell: bash
+      run: |
+        echo "Retrieving uat.ps1 contents..."
+        command_id=$(aws ssm send-command \
+          --region "${{ inputs.aws_region }}" \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunPowerShellScript" \
+          --parameters commands='[
+            "Write-Host \"Displaying uat.ps1 Contents...\"",
+            "Get-Content C:/Temp/uat.ps1"
+          ]' \
+          --timeout-seconds 300 \
+          --max-concurrency "50" \
+          --max-errors "0" \
+          --query "Command.CommandId" \
+          --output text -v) # Added -v for debug logging
+        echo "PREVIEW_CONFIG_COMMAND_ID=$command_id" >> $GITHUB_ENV
 
-# Boolean Flags
-$AddArtifactsToRelease = ($AddArtifactsToRelease -eq "true")
-$UsingClusterNames = ($UsingClusterNames -eq "true")
-$UseServiceAccount = ($UseServiceAccount -eq "true")
-$UseMultiSubnetFailover = ($UseMultiSubnetFailover -eq "true")
+        aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID" -v # Added -v for debug logging
 
-# SQL Service Account Credentials (Ensure secure handling of credentials)
-$ServiceAccountUserName = ""  # Placeholder for service account username
-$ServiceAccountPassword = ""  # Placeholder for service account password
+    - name: "Get Preview Config Output"
+      shell: bash
+      run: |
+        # Get the command invocation details
+        invocation_details=$(aws ssm get-command-invocation \
+          --region "${{ inputs.aws_region }}" \
+          --command-id "${{ env.PREVIEW_CONFIG_COMMAND_ID }}" \
+          --instance-id "$INSTANCE_ID" -v) # Added -v for debug logging
 
-# SQLCMD Variables (Expected to be referenced in another script)
-$SqlCmdVariables = @{}  # Example: @{ "Variable1" = "Value1"; "Variable2" = "Value2" }
+        echo "Invocation details:" # Print the full JSON output for debugging
+        echo "$invocation_details" | jq '.'
 
-# SQLPackage Parameters (Expected to be referenced in another script)
-$SqlPackageParameters = @{}  # Example: @{ "Parameter1" = "Value1"; "Parameter2" = "Value2" }
+        # Check the status code
+        status_code=$(echo "$invocation_details" | jq -r '.ResponseCode')
+        if [[ "$status_code" != "0" ]]; then
+          echo "Error: SSM command execution failed with status code: $status_code"
+          exit 1
+        fi
 
-# Octopus Environment Variables
-$OctopusEnvironmentName = "LS6 Global - 01"
-$OctopusReleaseNumber = "Build Number"
+        # Extract and display the output
+        output=$(echo "$invocation_details" | jq -r '.StandardOutputContent')
+        echo "uat.ps1 contents:"
+        echo "$output"
+
+
+
+--------------------
+
+
+
+# This is POC workflow to verify DACPAC Octopus pipeline to GHA migration work
+name: Download SqlPackage
+
+on:
+  pull_request:
+    branches:
+      - "main"
+    paths:
+      - "od-gha-files/*"
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/poc-gha-od-testing"
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  DACPAC_UTILITY_PATH: "od-gha-files"
+
+jobs:
+  # Testing connectivity using dockerfile without pushing it
+  # docker-image-build:
+  #   runs-on: [ self-hosted, linux, runners-ap-southeast-2]
+  #   steps:
+  #     - name: Build
+  #       id: build-only
+  #       uses: xero-internal/github-actions/docker-image-build-push@v1.0
+  #       with:
+  #         version: "latest"
+  #         docker-image-name: "build-and-push-docker-test"
+  #         docker-file: "od-gha-files/Dockerfile"
+  test-ssm:
+    runs-on: [self-hosted, linux, x64, runners-us-west-2]
+    environment: uat
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: "Verify file paths"
+        run: |
+          ls -l od-gha-files/dacpac-utility.ps1
+          ls -l od-gha-files/uat.ps1
+
+      - name: Assume OIDC role
+        id: assume_oidc_role
+        uses: xero-internal/github-actions/aws-assume-oidc@main
+        with:
+          oidc-role-to-assume: ${{ vars.oidc_role_arn }}
+          target-role-to-assume: ${{ vars.deployment_role_arn }}
+          aws-region: us-west-2
+
+      - name: "Transfer Scripts to Target Instance"
+        uses: ./.github/actions/dacpac-utility-ssm
+        with:
+          aws_region: us-west-2
+          script_path: "${{ env.DACPAC_UTILITY_PATH }}/dacpac-utility.ps1"
+          config_path: "${{ env.DACPAC_UTILITY_PATH }}/uat.ps1"
+          instance_name: GSQN-45VQKN
+
+      - name: "Get Verify File Transfer Output"
+        run: |
+          aws ssm get-command-invocation \
+            --region us-west-2 \
+            --command-id "${{ env.VERIFY_FILE_TRANSFER_COMMAND_ID }}" \
+            --instance-id "${{ env.INSTANCE_ID }}" \
+            --query 'StandardOutputContent' --output text -v # Only output the relevant content
+
+      - name: "Preview UAT Configuration File (uat.ps1)"
+        run: |
+          command_id=$(aws ssm send-command \
+            --region us-west-2 \
+            --instance-ids "${{ env.INSTANCE_ID }}" \
+            --document-name "AWS-RunPowerShellScript" \
+            --parameters commands='[
+              "Write-Host \"Displaying uat.ps1 Contents...\"",
+              "Get-Content C:/Temp/uat.ps1"
+            ]' \
+            --timeout-seconds 300 \
+            --max-concurrency "50" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text) || { echo "Error sending SSM command"; exit 1; }
+          echo "PREVIEW_CONFIG_COMMAND_ID=$command_id" >> $GITHUB_ENV
+
+          aws ssm wait command-executed --command-id "$command_id" --instance-id "${{ env.INSTANCE_ID }}" || { echo "Error waiting for SSM command execution"; exit 1; }
+
+
+
+
+    #   - name: Build Container Image
+    #     run: |
+    #       docker build -t build-and-push-docker-test -f od-gha-files/Dockerfile .
+
+    #   - name: check local images
+    #     run: |
+    #       docker images
+
+    #   - name: Upload Packages to S3
+    #     run: |
+    #       docker run --env AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }} --env AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }} --env AWS_SESSION_TOKEN=${{ env.AWS_SESSION_TOKEN }} build-and-push-docker-test /bin/bash -c "aws s3 cp /mnt/nugetpackage s3://mandeeptest1/EmployeeInvitation/ --recursive"
+        # env:
+        #   AWS_DEFAULT_REGION: us-west-2
+        #   AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+        #   AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        #   AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+
+      # - name: Run SSM document on EC2
+      #   run: |
+      #     aws ssm send-command --document-name "$SSM_DOCUMENT_NAME" --targets "Key=InstanceIds,Values=$INSTANCE_ID" --parameters 'commands=["Write-Output \"Items in C:/ is below:-\"; Get-ChildItem -Path C:\ -Recurse -ErrorAction SilentlyContinue | Select-Object FullName"]' --output text
+
+      #   env:
+      #     INSTANCE_ID: "i-01a305a321b8e8a07"
+      #     SSM_DOCUMENT_NAME: "AWS-RunPowerShellScript"
+      #     COMMAND: "echo 'Testing the SSM permission and flow'"
+
+
+      # - name: Test SSM Doc via script
+      #   uses: ./.github/actions/dacpac-utility-ssm
+      #   with:
+      #     aws_region: us-west-2
+      #     script_path: "${{ env.DACPAC_UTILITY_PATH }}/dacpac-utility-test.ps1"
+      #     instance_name: GSQN-45VQKN
+      #     script_variables: >-
+      #       Action=Extract
+      #       TargetServers=employeeinvitation.db.livestage6.test.xero.com
+      #       DatabaseNames=EmployeeInvitation
+      #       SQL_USER=${{ secrets.SQL_USER }}
+      #       SQL_PASSWORD=${{ secrets.SQL_PASSWORD }}
+
+      # # Install Mono (needed to run nuget.exe on Linux)
+      # - name: Install Mono
+      #   run: |
+      #     # Download the Mono Project's GPG key
+      #     sudo rpm --import "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF" || \
+      #     sudo rpm --import "https://download.mono-project.com/repo/xamarin.gpg"
+
+      #     # Add the Mono Project's repository
+      #     sudo dnf config-manager --add-repo https://download.mono-project.com/repo/centos8-stable.repo
+
+      #     # Install mono-devel
+      #     sudo dnf install -y mono-devel
+
+      #     sudo dnf install -y mono-devel
+
+      # # Download NuGet CLI (nuget.exe)
+      # - name: Download NuGet CLI (nuget.exe)
+      #   run: |
+      #     sudo curl -L https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -o /usr/local/bin/nuget.exe
+      #     sudo chmod +x /usr/local/bin/nuget.exe  # Make nuget.exe executable
+
+      # # # Create a symbolic link for nuget in /usr/local/bin
+      # # - name: Add NuGet CLI to PATH
+      # #   run: |
+      # #     sudo ln -sf /usr/local/bin/nuget.exe /usr/local/bin/nuget
+      # #     echo "Updated PATH: $PATH"
+
+      # # Create a wrapper script to run nuget.exe with Mono
+      # - name: Create NuGet Wrapper Script
+      #   run: |
+      #     echo '#!/bin/bash' | sudo tee /usr/local/bin/nuget > /dev/null
+      #     echo 'mono /usr/local/bin/nuget.exe "$@"' | sudo tee -a /usr/local/bin/nuget > /dev/null
+      #     sudo chmod +x /usr/local/bin/nuget
+
+      # # # Verify NuGet CLI is accessible and installed using nuget help
+      # # #- name: Verify NuGet CLI Installation
+      # # #  run: |
+      # # #    nuget help
+
+      # # Add Artifactory as a NuGet source
+      # - name: Add Artifactory as a NuGet source
+      #   run: |
+      #     nuget sources Add -Name Artifactory -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -Username ${{ secrets.ARTIFACTORY_USER }} -Password ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      # # Verify the added NuGet source
+      # - name: Verify NuGet source
+      #   run: |
+      #     nuget sources List  # List sources to verify Artifactory was added successfully
+
+      # # Install the 'Employee.Invitation.Database.485.0.0' package from Artifactory
+      # - name: Installing Employee.Invitation.Database.485.0.0 Package
+      #   run: |
+      #     sudo mkdir -p /opt/EmployeeInvitation
+      #     #nuget list Employee.Invitation.Database -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -Verbosity detailed
+      #     sudo nuget install Employee.Invitation.Database -Version 485.0.0 -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -OutputDirectory /opt/EmployeeInvitation
+
+      # # Install the 'DAC Deploy Contributor Package' from Artifactory
+      # - name: Installing DAC Deploy Contributor Package
+      #   run: |
+      #     #nuget list Employee.Invitation.Database -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -Verbosity detailed
+      #     sudo nuget install XeroDeploymentContributors -Version 0.0.33 -Source https://artifactory.xero-support.com/artifactory/api/nuget/v3/octopus-dev-local/index.json -OutputDirectory /opt/EmployeeInvitation
+
+
+      # # List the contents of the /opt/EmployeeInvitation directory
+      # - name: List files in /opt/EmployeeInvitation/ Directory
+      #   run: |
+      #     sudo ls -l /opt/EmployeeInvitation/Employee.Invitation.Database.485.0.0
+      #     sudo ls -l /opt/EmployeeInvitation/XeroDeploymentContributors.0.0.33
+
+      # # Upload Packages to S3
+      # - name: Upload Packages to S3
+      #   run: |
+      #     aws s3 cp /opt/EmployeeInvitation s3://mandeeptest1/EmployeeInvitation/ --recursive
+
+      # # Download the Packages from S3 to Target Server
+      # - name: Run SSM command to download from S3
+      #   run: |
+      #     INSTANCE_ID="i-01a305a321b8e8a07"  # Replace with your EC2 instance ID
+      #     S3_BUCKET="mandeeptest1"
+      #     TARGET_DIRECTORY="C:\\EmployeeInvitation"
+
+      #     # Send the command via SSM to download files from S3 to Windows EC2 instance
+      #     aws ssm send-command \
+      #       --instance-ids "$INSTANCE_ID" \
+      #       --document-name "AWS-RunPowerShellScript" \
+      #       --comment "Download S3 files to Windows EC2 instance" \
+      #       --parameters commands='[
+      #         "if (-not (Test-Path \"C:\\EmployeeInvitation\")) { New-Item -ItemType Directory -Force -Path \"C:\\EmployeeInvitation\" }",
+      #         "aws s3 cp s3://'"$S3_BUCKET"'/EmployeeInvitation/ C:\\EmployeeInvitation --recursive"
+      #       ]' \
+      #       --timeout-seconds 600 \
+      #       --max-concurrency "50" \
+      #       --max-errors "0" \
+      #       --region us-west-2  # Replace with your AWS region
+
+
+
+      # # Checking whether files are pulled correctly or not.
+      # - name: Verify files on Windows EC2 instance
+      #   run: |
+      #     INSTANCE_ID="i-01a305a321b8e8a07"  # Replace with your EC2 instance ID
+      #     TARGET_DIRECTORY="C:\\EmployeeInvitation"  # Windows path with double backslashes
+
+      #     echo "Verifying if files exist at $TARGET_DIRECTORY on EC2 instance..."
+
+      #     aws ssm send-command \
+      #       --instance-ids "$INSTANCE_ID" \
+      #       --document-name "AWS-RunPowerShellScript" \
+      #       --comment "Check if files were downloaded" \
+      #       --parameters commands='[
+      #         "if (Test-Path \"C:\\EmployeeInvitation\") {
+      #           Write-Host \"Directory Exists: C:\\EmployeeInvitation\";
+      #           Get-ChildItem \"C:\\EmployeeInvitation\"
+      #         } else {
+      #           Write-Host \"Directory not found\"
+      #         }"
+      #       ]' \
+      #       --timeout-seconds 600 \
+      #       --max-concurrency "50" \
+      #       --max-errors "0" \
+      #       --region us-west-2  # Change this to your AWS region
+
+      # Deleting the files after pulling them from S3
+      # - name: Delete `C:\EmployeeInvitation` if it exists on Windows EC2
+      #   run: |
+      #     INSTANCE_ID="i-01a305a321b8e8a07"  # Replace with your EC2 instance ID
+
+      #     echo "Checking and deleting 'C:\EmployeeInvitation' on EC2 instance if it exists..."
+
+      #     aws ssm send-command \
+      #       --instance-ids "$INSTANCE_ID" \
+      #       --document-name "AWS-RunPowerShellScript" \
+      #       --comment "Delete EmployeeInvitation directory if it exists" \
+      #       --parameters commands='[
+      #         "if (Test-Path \"C:\\EmployeeInvitation\") {
+      #           Write-Host \"Directory exists. Deleting...\";
+      #           Remove-Item -Path \"C:\\EmployeeInvitation\" -Recurse -Force;
+      #           Write-Host \"Directory Deleted.\";
+      #         } else {
+      #           Write-Host \"Directory not found. Nothing to delete.\";
+      #         }"
+      #       ]' \
+      #       --timeout-seconds 600 \
+      #       --max-concurrency "50" \
+      #       --max-errors "0" \
+      #       --region us-west-2  # Change this to your AWS region
+
+--------------------
+
+
+Run echo "Finding the target EC2 instance..."
+  echo "Finding the target EC2 instance..."
+  instance_id=$(aws ec2 describe-instances --region "us-west-2" --filters "Name=tag:Name,Values=GSQN-45VQKN" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].InstanceId" --output text)
+  if [[ -z "$instance_id" ]]; then
+    echo "Error: No running instances found with name 'GSQN-45VQKN'"
+    exit 1
+  fi
+  echo "Instance ID: $instance_id"
+  echo "INSTANCE_ID=$instance_id" >> $GITHUB_ENV
+  shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+  env:
+    DACPAC_UTILITY_PATH: od-gha-files
+    RUNNER_REGION: us-west-2
+    RUNNER_DEPLOYTRACK_TOKEN: ***
+    ENV_NAME_EXTRACTED: uat
+    AWS_DEFAULT_REGION: us-west-2
+    AWS_REGION: us-west-2
+    AWS_ACCESS_KEY_ID: ***
+    AWS_SECRET_ACCESS_KEY: ***
+    AWS_SESSION_TOKEN: ***
+Finding the target EC2 instance...
+Instance ID: i-01a305a321b8e8a07
+Run # ... (other variables) ...
+  # ... (other variables) ...
+  
+  echo "Transferring files to target EC2 instance..."
+  command_id=$(cd od-gha-files && aws ssm send-command \  # Change working directory to od-gha-files
+    --region "us-west-2" \
+    --instance-ids "$INSTANCE_ID" \
+    --document-name "AWS-RunPowerShellScript" \  # Add the missing --document-name argument
+    --parameters commands="[
+      'Write-Host \"Creating Temp Directory...\"',
+      'New-Item -Path C:/Temp -ItemType Directory -Force',
+      '[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"$(base64 -w 0 \"dacpac-utility.ps1\")\")) | Out-File \"$remote_script_file\"',
+      '[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"$(base64 -w 0 \"uat.ps1\")\")) | Out-File \"$remote_uat_file\"',
+      'Write-Host \"Scripts transferred successfully\"'
+    ]" \
+    --timeout-seconds 300 \
+    --max-concurrency "50" \
+    --max-errors "0" \
+    --query "Command.CommandId" \
+    --output text)
+  echo "TRANSFER_FILES_COMMAND_ID=$command_id" >> $GITHUB_ENV
+  
+  aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID"
+  shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+  env:
+    DACPAC_UTILITY_PATH: od-gha-files
+    RUNNER_REGION: us-west-2
+    RUNNER_DEPLOYTRACK_TOKEN: ***
+    ENV_NAME_EXTRACTED: uat
+    AWS_DEFAULT_REGION: us-west-2
+    AWS_REGION: us-west-2
+    AWS_ACCESS_KEY_ID: ***
+    AWS_SECRET_ACCESS_KEY: ***
+    AWS_SESSION_TOKEN: ***
+    INSTANCE_ID: i-01a305a321b8e8a07
+Transferring files to target EC2 instance...
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws: error: the following arguments are required: --document-name
+/opt/actions-runner/_work/_temp/79bbc2b1-49e2-4771-b112-dc25de9bf69c.sh: line 20: --region: command not found
+base64: '"dacpac-utility.ps1"': No such file or directory
+base64: '"uat.ps1"': No such file or directory
+/opt/actions-runner/_work/_temp/79bbc2b1-49e2-4771-b112-dc25de9bf69c.sh: line 27: --parameters: command not found
+Error: Process completed with exit code 127.
