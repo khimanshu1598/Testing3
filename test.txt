@@ -1,83 +1,51 @@
-name: Deploy DACPAC Utility to Target Instance
+# Define deployment actions (Choose one: DeployReport, Script, Publish)
+$Action = "DeployReport"
 
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - "release/poc-gha-od-testing"
+# Path to the DACPAC file to be deployed
+$DacpacFilePath = "C:\abc\releases\EmployeeInvitation\Employee.Invitation.Database.Build.dacpac"
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
+# Path where artifacts will be downloaded
+$ArtifactDownloadFilePath = "C:\abc\releases\databases\EmployeeInvitation"
 
-env:
-  DACPAC_UTILITY_PATH: "od-gha-files"
+# Database name
+$DatabaseName = "EmployeeInvitation"
 
-jobs:
-  test-ssm:
-    runs-on: [self-hosted, linux, x64, runners-us-west-2]
-    environment: uat
-    steps:
-      - name: "Checkout Repository"
-        uses: actions/checkout@v4
+# Path to the Publish Profile XML
+$PublishProfileFilePath = "C:\abc\releases\databases\EmployeeInvitation\abc-uat.publish.xml"
 
-      - name: "Assume OIDC Role"
-        id: assume_oidc_role
-        uses: abc-internal/github-actions/aws-assume-oidc@main
-        with:
-          oidc-role-to-assume: ${{ vars.oidc_role_arn }}
-          target-role-to-assume: ${{ vars.deployment_role_arn }}
-          aws-region: us-west-2
+# Publish profile file name
+$PublishProfileFileName = "abc-uat.publish.xml"
 
-      - name: "Transfer Scripts to Target Instance"
-        uses: ./.github/actions/dacpac-utility-ssm
-        with:
-          aws_region: us-west-2
-          script_path: "${{ env.DACPAC_UTILITY_PATH }}/dacpac-utility.ps1"
-          config_path: "${{ env.DACPAC_UTILITY_PATH }}/uat.ps1"
-          instance_name: GSQN-45VQKN
+# Target SQL Server instance
+$TargetServers = "employeeinvitation.db.livestage6.test.abc.com"
 
-      - name: "Verify File Transfer on Target Instance"
-        run: |
-          instance_id=$(aws ec2 describe-instances \
-            --region us-west-2 \
-            --filters "Name=tag:Name,Values=GSQN-45VQKN" "Name=instance-state-name,Values=running" \
-            --query "Reservations[].Instances[].InstanceId" --output text)
+# Path to the deployment report file
+$DeployReportFilePath = "C:\abc\releases\databases\EmployeeInvitation\deployreports\LS6_Global-01.EmployeeInvitation.$($OctopusReleaseNumber).deployreport.xml"
 
-          aws ssm send-command \
-            --region us-west-2 \
-            --instance-ids "$instance_id" \
-            --document-name "AWS-RunPowerShellScript" \
-            --parameters commands='[
-              "Write-Host \"Checking if scripts exist...\"",
-              "if (Test-Path C:/Temp/dacpac-utility.ps1) { Write-Host \"dacpac-utility.ps1 exists\" } else { Write-Host \"ERROR: dacpac-utility.ps1 missing!\"; exit 1 }",
-              "if (Test-Path C:/Temp/uat.ps1) { Write-Host \"uat.ps1 exists\" } else { Write-Host \"ERROR: uat.ps1 missing!\"; exit 1 }",
-              "Write-Host \"File Transfer Verified Successfully.\""
-            ]' \
-            --timeout-seconds 300 \
-            --max-concurrency "50" \
-            --max-errors "0" \
-            --query "Command.CommandId" \
-            --output text
+# Path to SqlPackage.exe (Ensure this version exists on the target machine)
+$SqlPackagePath = "C:\Program Files (x86)\Microsoft SQL Server\130\DAC\bin\SqlPackage.exe"
 
-      - name: "Preview UAT Configuration File (uat.ps1)"
-        run: |
-          instance_id=$(aws ec2 describe-instances \
-            --region us-west-2 \
-            --filters "Name=tag:Name,Values=GSQN-45VQKN" "Name=instance-state-name,Values=running" \
-            --query "Reservations[].Instances[].InstanceId" --output text)
+# Additional deployment properties for SQLPackage
+$SqlPackageDeployProperties = @{
+    "AdditionalDeploymentContributorArguments" = "CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
+}
 
-          aws ssm send-command \
-            --region us-west-2 \
-            --instance-ids "$instance_id" \
-            --document-name "AWS-RunPowerShellScript" \
-            --parameters commands='[
-              "Write-Host \"Displaying uat.ps1 Contents...\"",
-              "Get-Content C:/Temp/uat.ps1"
-            ]' \
-            --timeout-seconds 300 \
-            --max-concurrency "50" \
-            --max-errors "0" \
-            --query "Command.CommandId" \
-            --output text
+# Boolean Flags
+$AddArtifactsToRelease = ($AddArtifactsToRelease -eq "true")
+$UsingClusterNames = ($UsingClusterNames -eq "true")
+$UseServiceAccount = ($UseServiceAccount -eq "true")
+$UseMultiSubnetFailover = ($UseMultiSubnetFailover -eq "true")
+
+# SQL Service Account Credentials (Ensure secure handling of credentials)
+$ServiceAccountUserName = ""  # Placeholder for service account username
+$ServiceAccountPassword = ""  # Placeholder for service account password
+
+# SQLCMD Variables (Expected to be referenced in another script)
+$SqlCmdVariables = @{}  # Example: @{ "Variable1" = "Value1"; "Variable2" = "Value2" }
+
+# SQLPackage Parameters (Expected to be referenced in another script)
+$SqlPackageParameters = @{}  # Example: @{ "Parameter1" = "Value1"; "Parameter2" = "Value2" }
+
+# Octopus Environment Variables
+$OctopusEnvironmentName = "LS6 Global - 01"
+$OctopusReleaseNumber = "Build Number"
