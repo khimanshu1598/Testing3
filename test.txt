@@ -1,39 +1,119 @@
-# $SqlPackageFilePath="C:\Program Files (x86)\Microsoft SQL Server\140\DAC\bin\SqlPackage.exe"
-$SqlPackageFilePath="C:\Program Files (x86)\Microsoft SQL Server\130\DAC\bin\SqlPackage.exe"
-#split out target servers
-$targetServerCollection = @()
-$targetServerCollection = $TargetServers -split ","
-Write-Verbose "Target Server Collection: $targetServerCollecton"
+name: 'SSM: DACPAC Utility'
+inputs:
+  instance_name:
+    description: "The name of the instances on which the script will be invoked."
+    required: true
+  aws_region:
+    description: "AWS region where the cluster is provisioned."
+    required: true
+  script_path:
+    description: "Local path to the DACPAC script to be transferred."
+    required: true
+  config_path:
+    description: "Local path to the UAT configuration file."
+    required: true
+  timeout_seconds:
+    description: "If this time is reached and the script hasn't already started running, it won't run."
+    required: false
+    default: "60"
+  cli_read_timeout_seconds:
+    description: "The maximum socket read time in seconds. If the value is set to 0, the socket read will not timeout."
+    required: false
+    default: "900"
 
-#split out database names
-$databaseNameCollection = @()
-$databaseNameCollection = $DatabaseNames -split ","
-Write-Verbose "Database Collection: $databaseNameCollection"
+runs:
+  using: composite
+  steps:
+    - name: "Transfer DACPAC Script & UAT Config to Target"
+      shell: bash
+      run: |
+        remote_script_file="C:/Temp/dacpac-utility.ps1"
+        remote_uat_file="C:/Temp/uat.ps1"
+        commands_list_file="ssm-commands.ps1"
+        commands_json_file="ssm-commands.json"
 
-Write-Output "Processing starting..."
+        echo "Finding the target EC2 instance..."
+        instance_ids=$(aws ec2 describe-instances \
+          --region "${{ inputs.aws_region }}" \
+          --filters "Name=tag:Name,Values=${{ inputs.instance_name }}" "Name=instance-state-name,Values=running" \
+          --query "Reservations[].Instances[].InstanceId" --output text)
 
-$SecurePassword = ConvertTo-SecureString -String $SQL_PASSWORD -AsPlainText -Force
-$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $SQL_PASSWORD, $SecurePassword
+        if [[ -z "$instance_ids" ]]; then
+          echo "Error: No running instances found with name '${{ inputs.instance_name }}'"
+          exit 1
+        fi
 
-foreach ($targetServer in $targetServerCollection) {
-    foreach ($databaseName in $databaseNameCollection) {
+        echo "Transferring files to target EC2 instance..."
+        aws ssm send-command \
+          --region "${{ inputs.aws_region }}" \
+          --instance-ids "$instance_ids" \
+          --document-name "AWS-RunPowerShellScript" \
+          --parameters commands='[
+            "Write-Host \"Creating Temp Directory...\"",
+            "New-Item -Path C:/Temp -ItemType Directory -Force",
+            "[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"'$(base64 -w 0 "${{ inputs.script_path }}")'\")) | Out-File $remote_script_file",
+            "[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String(\"'$(base64 -w 0 "${{ inputs.config_path }}")'\")) | Out-File $remote_uat_file",
+            "Write-Host \"Scripts transferred successfully\""
+          ]' \
+          --timeout-seconds 300 \
+          --max-concurrency "50" \
+          --max-errors "0" \
+          --query "Command.CommandId" \
+          --output text
 
-        # $sqlPackageCommand = "/Action:$Action /SourceServerName:$targetServer /SourceDatabaseName:$databaseName /TargetFile:C:/test.dacpac"
-        # $fullCommand = "& `"$SqlPackageFilePath`" $sqlPackageCommand"
-        # Write-Output "Executing full sqlpackage.exe command: $fullCommand"
+    - name: "Verify File Transfer on Target Instance"
+      shell: bash
+      run: |
+        echo "Verifying file existence on EC2 instance..."
+        aws ssm send-command \
+          --region "${{ inputs.aws_region }}" \
+          --instance-ids "$instance_ids" \
+          --document-name "AWS-RunPowerShellScript" \
+          --parameters commands='[
+            "Write-Host \"Checking if scripts exist...\"",
+            "if (Test-Path C:/Temp/dacpac-utility.ps1) { Write-Host \"dacpac-utility.ps1 exists\" } else { Write-Host \"ERROR: dacpac-utility.ps1 missing!\"; exit 1 }",
+            "if (Test-Path C:/Temp/uat.ps1) { Write-Host \"uat.ps1 exists\" } else { Write-Host \"ERROR: uat.ps1 missing!\"; exit 1 }",
+            "Write-Host \"File Transfer Verified Successfully.\""
+          ]' \
+          --timeout-seconds 300 \
+          --max-concurrency "50" \
+          --max-errors "0" \
+          --query "Command.CommandId" \
+          --output text
 
-        # Construct the connection string with SQL_USER and SQL_PASSWORD
-        $connectionString = "Server=$targetServer;Database=$databaseName;User ID=$SQL_USER;Password=$($Credential.GetNetworkCredential().Password);"
+    - name: "Preview UAT Configuration File (uat.ps1)"
+      shell: bash
+      run: |
+        echo "Retrieving uat.ps1 contents..."
+        aws ssm send-command \
+          --region "${{ inputs.aws_region }}" \
+          --instance-ids "$instance_ids" \
+          --document-name "AWS-RunPowerShellScript" \
+          --parameters commands='[
+            "Write-Host \"Displaying uat.ps1 Contents...\"",
+            "Get-Content C:/Temp/uat.ps1"
+          ]' \
+          --timeout-seconds 300 \
+          --max-concurrency "50" \
+          --max-errors "0" \
+          --query "Command.CommandId" \
+          --output text
 
-        # Construct the sqlpackage command, including only the SourceConnectionString (without SourceServerName and SourceDatabaseName)
-        $sqlPackageCommand = "/Action:$Action /TargetFile:C:/test.dacpac /SourceConnectionString:`"$connectionString`""
-
-        # Create the full command
-        $fullCommand = "& `"$SqlPackageFilePath`" $sqlPackageCommand"
-
-        # Execute the command
-        Invoke-Expression $fullCommand
-    }
-}
-
-Write-Output "Processing Complete."
+    # - name: "Execute DACPAC Utility (Disabled for now)"
+    #   shell: bash
+    #   run: |
+    #     echo "Skipping execution for now..."
+    #     # Uncomment this block when you are ready to execute the script
+    #     # aws ssm send-command \
+    #     #   --region "${{ inputs.aws_region }}" \
+    #     #   --instance-ids "$instance_ids" \
+    #     #   --document-name "AWS-RunPowerShellScript" \
+    #     #   --parameters commands='[
+    #     #     "Write-Host \"Executing dacpac-utility.ps1...\"",
+    #     #     "Start-Process powershell.exe -ArgumentList \"-File C:/Temp/dacpac-utility.ps1 -Config C:/Temp/uat.ps1\" -NoNewWindow -Wait"
+    #     #   ]' \
+    #     #   --timeout-seconds 600 \
+    #     #   --max-concurrency "50" \
+    #     #   --max-errors "0" \
+    #     #   --query "Command.CommandId" \
+    #     #   --output text
