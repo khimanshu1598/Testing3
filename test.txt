@@ -1,116 +1,28 @@
----
-name: 'SSM: DACPAC Utility'
-inputs:
-  instance_name:
-    description: "The name of the EC2 instance where the script will be invoked."
-    required: true
-  aws_region:
-    description: "AWS region where the EC2 instance is located."
-    required: true
-  script_path:
-    description: "Path to the DACPAC utility script in the repository."
-    required: true
-  config_path:
-    description: "Path to the UAT configuration file in the repository."
-    required: true
-  timeout_seconds:
-    description: "Time limit for script execution."
-    required: false
-    default: "60"
-  cli_read_timeout_seconds:
-    description: "Maximum socket read time in seconds."
-    required: false
-    default: "900"
-
-runs:
-  using: composite
-  steps:
-    - name: "Retrieve Instance ID from Name"
-      shell: bash
-      run: |
-        echo "Finding the target EC2 instance..."
-        instance_id=$(aws ec2 describe-instances \
-          --region "${{ inputs.aws_region }}" \
-          --filters "Name=tag:Name,Values=${{ inputs.instance_name }}" "Name=instance-state-name,Values=running" \
-          --query "Reservations[0].Instances[0].InstanceId" \
-          --output text)
-
-        if [[ -z "$instance_id" || "$instance_id" == "None" ]]; then
-          echo "Error: No running instances found with name '${{ inputs.instance_name }}'"
-          exit 1
-        fi
-        echo "Instance ID: $instance_id"
-        echo "INSTANCE_ID=$instance_id" >> $GITHUB_ENV
-
-    - name: "Transfer DACPAC Script & UAT Config to Target"
-      shell: bash
-      run: |
-        echo "Checking if required files exist..."
-        if [[ ! -f "${{ inputs.script_path }}" || ! -f "${{ inputs.config_path }}" ]]; then
-          echo "Error: Script or config file not found."
-          exit 1
-        fi
-
-        echo "Transferring files to target EC2 instance..."
-        remote_script_file="C:/Temp/dacpac-utility.ps1"
-        remote_uat_file="C:/Temp/uat.ps1"
-
-        command_id=$(aws ssm send-command \
-          --region "${{ inputs.aws_region }}" \
-          --instance-ids "$INSTANCE_ID" \
-          --document-name "AWS-RunPowerShellScript" \
-          --parameters commands="[
-            \"Write-Host 'Creating Temp Directory...'\",
-            \"New-Item -Path C:/Temp -ItemType Directory -Force\",
-            \"[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String('$(base64 -w 0 "${{ inputs.script_path }}")')) | Out-File '$remote_script_file'\",
-            \"[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String('$(base64 -w 0 "${{ inputs.config_path }}")')) | Out-File '$remote_uat_file'\",
-            \"Write-Host 'Scripts transferred successfully'\"
-          ]" \
-          --timeout-seconds 300 \
-          --max-concurrency "50" \
-          --max-errors "0" \
-          --query "Command.CommandId" \
-          --output text)
-
-        echo "TRANSFER_FILES_COMMAND_ID=$command_id" >> $GITHUB_ENV
-        aws ssm wait command-executed --region "${{ inputs.aws_region }}" --command-id "$command_id" --instance-id "$INSTANCE_ID"
-
-    - name: "Verify File Transfer on Target Instance"
-      shell: bash
-      run: |
-        command_id=$(aws ssm send-command \
-          --region "${{ inputs.aws_region }}" \
-          --instance-ids "$INSTANCE_ID" \
-          --document-name "AWS-RunPowerShellScript" \
-          --parameters commands="[
-            \"if (Test-Path 'C:/Temp/dacpac-utility.ps1') { Write-Host 'dacpac-utility.ps1 exists' } else { Write-Host 'ERROR: dacpac-utility.ps1 missing!'; exit 1 }\",
-            \"if (Test-Path 'C:/Temp/uat.ps1') { Write-Host 'uat.ps1 exists' } else { Write-Host 'ERROR: uat.ps1 missing!'; exit 1 }\"
-          ]" \
-          --timeout-seconds 300 \
-          --max-concurrency "50" \
-          --max-errors "0" \
-          --query "Command.CommandId" \
-          --output text)
-
-        echo "VERIFY_FILE_TRANSFER_COMMAND_ID=$command_id" >> $GITHUB_ENV
-        aws ssm wait command-executed --region "${{ inputs.aws_region }}" --command-id "$command_id" --instance-id "$INSTANCE_ID"
-
-    - name: "Preview UAT Configuration File (uat.ps1)"
-      shell: bash
-      run: |
-        command_id=$(aws ssm send-command \
-          --region "${{ inputs.aws_region }}" \
-          --instance-ids "$INSTANCE_ID" \
-          --document-name "AWS-RunPowerShellScript" \
-          --parameters commands="[
-            \"Write-Host 'Displaying uat.ps1 Contents...'\",
-            \"Get-Content 'C:/Temp/uat.ps1'\"
-          ]" \
-          --timeout-seconds 300 \
-          --max-concurrency "50" \
-          --max-errors "0" \
-          --query "Command.CommandId" \
-          --output text)
-
-        echo "PREVIEW_CONFIG_COMMAND_ID=$command_id" >> $GITHUB_ENV
-        aws ssm wait command-executed --region "${{ inputs.aws_region }}" --command-id "$command_id" --instance-id "$INSTANCE_ID"
+Run aws ssm get-command-invocation \
+  aws ssm get-command-invocation \
+    --region us-west-2 \
+    --command-id "29af31be-2e80-419f-8dad-de919db11a41" \
+    --instance-id "i-01a305a321b8e8a07" \
+    --query 'StandardOutputContent' --output text -v # Only output the relevant content
+  shell: /usr/bin/bash -e {0}
+  env:
+    DACPAC_UTILITY_PATH: od-gha-files
+    RUNNER_REGION: us-west-2
+    RUNNER_DEPLOYTRACK_TOKEN: ***
+    ENV_NAME_EXTRACTED: uat
+    AWS_DEFAULT_REGION: us-west-2
+    AWS_REGION: us-west-2
+    AWS_ACCESS_KEY_ID: ***
+    AWS_SECRET_ACCESS_KEY: ***
+    AWS_SESSION_TOKEN: ***
+    INSTANCE_ID: i-01a305a321b8e8a07
+    TRANSFER_FILES_COMMAND_ID: 40d17bde-82c3-44d4-b76f-ffdabbab37ce
+    VERIFY_FILE_TRANSFER_COMMAND_ID: 29af31be-2e80-419f-8dad-de919db11a41
+    PREVIEW_CONFIG_COMMAND_ID: b6fd9049-926a-412a-9163-2782ac9d78c8
+  
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+Unknown options: -v
