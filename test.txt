@@ -1,28 +1,33 @@
-Run aws ssm get-command-invocation \
-  aws ssm get-command-invocation \
-    --region us-west-2 \
-    --command-id "29af31be-2e80-419f-8dad-de919db11a41" \
-    --instance-id "i-01a305a321b8e8a07" \
-    --query 'StandardOutputContent' --output text -v # Only output the relevant content
-  shell: /usr/bin/bash -e {0}
-  env:
-    DACPAC_UTILITY_PATH: od-gha-files
-    RUNNER_REGION: us-west-2
-    RUNNER_DEPLOYTRACK_TOKEN: ***
-    ENV_NAME_EXTRACTED: uat
-    AWS_DEFAULT_REGION: us-west-2
-    AWS_REGION: us-west-2
-    AWS_ACCESS_KEY_ID: ***
-    AWS_SECRET_ACCESS_KEY: ***
-    AWS_SESSION_TOKEN: ***
-    INSTANCE_ID: i-01a305a321b8e8a07
-    TRANSFER_FILES_COMMAND_ID: 40d17bde-82c3-44d4-b76f-ffdabbab37ce
-    VERIFY_FILE_TRANSFER_COMMAND_ID: 29af31be-2e80-419f-8dad-de919db11a41
-    PREVIEW_CONFIG_COMMAND_ID: b6fd9049-926a-412a-9163-2782ac9d78c8
-  
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-Unknown options: -v
+- name: "Check if SqlServer Module is Installed on Target"
+        shell: bash
+        run: |
+          echo "Checking if SqlServer module is installed on target EC2 instance..."
+          command_id=$(aws ssm send-command \
+            --region us-west-2 \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunPowerShellScript" \
+            --parameters commands="[
+              \"if (Get-Module -ListAvailable -Name SqlServer) {\",
+              \"    Write-Host 'SqlServer module is installed.'\",
+              \"} else {\",
+              \"    Write-Host 'SqlServer module is NOT installed on this instance!'\",
+              \"}\"
+            ]" \
+            --timeout-seconds 300 \
+            --max-concurrency "50" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "CHECK_SQLSERVER_COMMAND_ID=$command_id" >> $GITHUB_ENV
+          aws ssm wait command-executed --region us-west-2 --command-id "$command_id" --instance-id "$INSTANCE_ID"
+
+      - name: "Retrieve Check Module Output"
+        shell: bash
+        run: |
+          echo "Retrieving check result..."
+          aws ssm get-command-invocation \
+            --region us-west-2 \
+            --command-id "${{ env.CHECK_SQLSERVER_COMMAND_ID }}" \
+            --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text
