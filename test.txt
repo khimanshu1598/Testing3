@@ -1,23 +1,75 @@
-Action = "DeployReport", "Script", "Publish"
-DacpacFilePath = "C:\abc\releases\EmployeeInvitation\Employee.Invitation.Database.Build.dacpac"
-ArtifactDownloadFilePath = "C:\abc\releases\databases\EmployeeInvitation"
-DatabaseName = EmployeeInvitation
-PublishProfileFilePath = "C:\abc\releases\databases\EmployeeInvitation\abc-uat.publish.xml"
-PublishProfileFileName = abc-uat.publish.xml
-TargetServers = employeeinviation.db.livestage6.test.abc.com
-DeployReportFilePath = "C:\abc\releases\databases\EmployeeInvitation\deployreports\LS6 Global - 01.EmployeeInvitation.#{Octopus.Release.Number}.deployreport.xml"
-SqlPackagePath = C:\Program Files\Microsoft SQL Server\150\DAC\bin\SqlPackage.exe
-SqlPackageDeployProperties = {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
-AddArtifactsToRelease = $AddArtifactsToRelease -eq "true"
-UsingClusterNames = $UsingClusterNames -eq "true"
-UseServiceAccount = $UseServiceAccount -eq "true"
-UseMultiSubnetFailover = $UseMultiSubnetFailover -eq "true"
+name: Deploy DACPAC
 
-ServiceAccountUserName - 
-ServiceAccountPassword -
+on:
+  push:
+    branches:
+      - main
 
-SqlCmdVariables - Its i think referencing to the action.ps1 file
-SqlPackageParameters - Its i think referencing to the action.ps1 file
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-OctopusEnvironmentName - LS6 Global - 01
-OctopusReleaseNumber - Build Number
+    steps:
+      # Checkout the code from GitHub repo
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      # Upload input.ps1 and MainScript.ps1 to the target server using AWS SSM
+      - name: Upload Scripts to Target Server
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Copy-Item -Path input.ps1 -Destination C:\\path\\to\\target\\input.ps1', 'Copy-Item -Path MainScript.ps1 -Destination C:\\path\\to\\target\\MainScript.ps1']"
+
+      # Modify input.ps1 parameters for Deploy Report and Script
+      - name: Modify input.ps1 for Deploy Report and Script
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Set-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployReportAction=true\"']"
+          
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployScriptAction=true\"']"
+          
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"PublishAction=false\"']"
+
+      # Execute MainScript.ps1 for Deploy Report & Script
+      - name: Execute MainScript.ps1 for Deploy Report and Script
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['powershell.exe -File C:\\path\\to\\target\\MainScript.ps1 -InputFile C:\\path\\to\\target\\input.ps1']"
+
+      # Modify input.ps1 parameters for Publish
+      - name: Modify input.ps1 for Publish
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Set-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployReportAction=false\"']"
+          
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployScriptAction=false\"']"
+          
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"PublishAction=true\"']"
+
+      # Execute MainScript.ps1 for Publish
+      - name: Execute MainScript.ps1 for Publish
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
+            --parameters "commands=['powershell.exe -File C:\\path\\to\\target\\MainScript.ps1 -InputFile C:\\path\\to\\target\\input.ps1']"
