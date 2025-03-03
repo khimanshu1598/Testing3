@@ -1,33 +1,23 @@
-- name: "Check if SqlServer Module is Installed on Target"
-        shell: bash
-        run: |
-          echo "Checking if SqlServer module is installed on target EC2 instance..."
-          command_id=$(aws ssm send-command \
-            --region us-west-2 \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunPowerShellScript" \
-            --parameters commands="[
-              \"if (Get-Module -ListAvailable -Name SqlServer) {\",
-              \"    Write-Host 'SqlServer module is installed.'\",
-              \"} else {\",
-              \"    Write-Host 'SqlServer module is NOT installed on this instance!'\",
-              \"}\"
-            ]" \
-            --timeout-seconds 300 \
-            --max-concurrency "50" \
-            --max-errors "0" \
-            --query "Command.CommandId" \
-            --output text)
+Action = "DeployReport", "Script", "Publish"
+DacpacFilePath = "C:\abc\releases\EmployeeInvitation\Employee.Invitation.Database.Build.dacpac"
+ArtifactDownloadFilePath = "C:\abc\releases\databases\EmployeeInvitation"
+DatabaseName = EmployeeInvitation
+PublishProfileFilePath = "C:\abc\releases\databases\EmployeeInvitation\abc-uat.publish.xml"
+PublishProfileFileName = abc-uat.publish.xml
+TargetServers = employeeinviation.db.livestage6.test.abc.com
+DeployReportFilePath = "C:\abc\releases\databases\EmployeeInvitation\deployreports\LS6 Global - 01.EmployeeInvitation.#{Octopus.Release.Number}.deployreport.xml"
+SqlPackagePath = C:\Program Files\Microsoft SQL Server\150\DAC\bin\SqlPackage.exe
+SqlPackageDeployProperties = {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
+AddArtifactsToRelease = $AddArtifactsToRelease -eq "true"
+UsingClusterNames = $UsingClusterNames -eq "true"
+UseServiceAccount = $UseServiceAccount -eq "true"
+UseMultiSubnetFailover = $UseMultiSubnetFailover -eq "true"
 
-          echo "CHECK_SQLSERVER_COMMAND_ID=$command_id" >> $GITHUB_ENV
-          aws ssm wait command-executed --region us-west-2 --command-id "$command_id" --instance-id "$INSTANCE_ID"
+ServiceAccountUserName - 
+ServiceAccountPassword -
 
-      - name: "Retrieve Check Module Output"
-        shell: bash
-        run: |
-          echo "Retrieving check result..."
-          aws ssm get-command-invocation \
-            --region us-west-2 \
-            --command-id "${{ env.CHECK_SQLSERVER_COMMAND_ID }}" \
-            --instance-id "$INSTANCE_ID" \
-            --query 'StandardOutputContent' --output text
+SqlCmdVariables - Its i think referencing to the action.ps1 file
+SqlPackageParameters - Its i think referencing to the action.ps1 file
+
+OctopusEnvironmentName - LS6 Global - 01
+OctopusReleaseNumber - Build Number
