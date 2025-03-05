@@ -1,75 +1,39 @@
-name: Deploy DACPAC
+# Define SQLPackage Path
+$SqlPackageFilePath = "C:\Program Files (x86)\Microsoft SQL Server\130\DAC\bin\SqlPackage.exe"
 
-on:
-  push:
-    branches:
-      - main
+# Define Variables
+$Action = "Extract"
+$TargetServers = "employeeinvitation.db.livestage6.test.abc.com"
+$DatabaseNames = "EmployeeInvitation"
+$SQL_USER = "your_sql_user"
+$SQL_PASSWORD = "your_sql_password"
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+# Convert SQL password to secure string
+$SecurePassword = ConvertTo-SecureString -String $SQL_PASSWORD -AsPlainText -Force
+$Credential = New-Object System.Management.Automation.PSCredential ($SQL_USER, $SecurePassword)
 
-    steps:
-      # Checkout the code from GitHub repo
-      - name: Checkout Repository
-        uses: actions/checkout@v2
+# Define script to execute under specific credentials
+$scriptToRun = "C:\Temp\dacpac-execution.ps1"
 
-      # Upload input.ps1 and MainScript.ps1 to the target server using AWS SSM
-      - name: Upload Scripts to Target Server
-        run: |
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Copy-Item -Path input.ps1 -Destination C:\\path\\to\\target\\input.ps1', 'Copy-Item -Path MainScript.ps1 -Destination C:\\path\\to\\target\\MainScript.ps1']"
+# Split out target servers
+$targetServerCollection = $TargetServers -split ","
+$databaseNameCollection = $DatabaseNames -split ","
 
-      # Modify input.ps1 parameters for Deploy Report and Script
-      - name: Modify input.ps1 for Deploy Report and Script
-        run: |
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Set-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployReportAction=true\"']"
-          
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployScriptAction=true\"']"
-          
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"PublishAction=false\"']"
+# Create script dynamically
+@"
+`$SqlPackageFilePath = '$SqlPackageFilePath'
+`$targetServerCollection = '$TargetServers' -split ","
+`$databaseNameCollection = '$DatabaseNames' -split ","
 
-      # Execute MainScript.ps1 for Deploy Report & Script
-      - name: Execute MainScript.ps1 for Deploy Report and Script
-        run: |
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['powershell.exe -File C:\\path\\to\\target\\MainScript.ps1 -InputFile C:\\path\\to\\target\\input.ps1']"
+foreach (`$targetServer in `$targetServerCollection) {
+    foreach (`$databaseName in `$databaseNameCollection) {
+        `$connectionString = "Server=`$targetServer;Database=`$databaseName;Integrated Security=True;"
+        `$sqlPackageCommand = "/Action:$Action /TargetFile:C:/test.dacpac /SourceConnectionString=`"`$connectionString`""
+        `$fullCommand = "& `"`$SqlPackageFilePath`" `$sqlPackageCommand"
+        Invoke-Expression `$fullCommand
+    }
+}
+"@ | Out-File -FilePath $scriptToRun -Encoding utf8
 
-      # Modify input.ps1 parameters for Publish
-      - name: Modify input.ps1 for Publish
-        run: |
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Set-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployReportAction=false\"']"
-          
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"DeployScriptAction=false\"']"
-          
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['Add-Content -Path C:\\path\\to\\target\\input.ps1 -Value \"PublishAction=true\"']"
-
-      # Execute MainScript.ps1 for Publish
-      - name: Execute MainScript.ps1 for Publish
-        run: |
-          aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --targets "Key=instanceIds,Values=YOUR_INSTANCE_ID" \
-            --parameters "commands=['powershell.exe -File C:\\path\\to\\target\\MainScript.ps1 -InputFile C:\\path\\to\\target\\input.ps1']"
+# Execute script as different user
+Start-Process powershell.exe -Credential $Credential -ArgumentList "-File $scriptToRun" -NoNewWindow -Wait
