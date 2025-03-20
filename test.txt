@@ -1,54 +1,54 @@
-# Fetch SQL Credentials from AWS SSM Parameter Store
-$SQL_USER = (Get-SSMParameter -Name "/secure/sql_user" -WithDecryption $false).Value
-$SQL_PASSWORD = (Get-SSMParameter -Name "/secure/sql_password" -WithDecryption $true).Value
+name: Get GitHub Runner Subnet and IP Range
 
-$SecurePassword = ConvertTo-SecureString -String $SQL_PASSWORD -AsPlainText -Force
-$Credential = New-Object System.Management.Automation.PSCredential ($SQL_USER, $SecurePassword)
+on:
+  workflow_dispatch:
+    inputs:
+      runner_name:
+        description: "Name of the self-hosted runner"
+        required: true
+        type: string
 
-# SQL Connection Variables
-$serverName = "abc.db.livestage6.test.abc.com"
-$databaseName = "Abc"
+jobs:
+  fetch-runner-details:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS CLI
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: us-east-1  # Change this to your AWS region
+          role-to-assume: arn:aws:iam::123456789012:role/github-actions-role  # Change to your IAM role
 
-# Connection String with SQL Authentication
-$connectionString = "Server=$serverName;Database=$databaseName;User ID=$SQL_USER;Password=$SQL_PASSWORD;Encrypt=False;TrustServerCertificate=True;"
+      - name: Find EC2 Instance (GitHub Runner)
+        id: get_instance
+        run: |
+          RUNNER_NAME="${{ github.event.inputs.runner_name }}"
+          INSTANCE_DETAILS=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=$RUNNER_NAME" \
+            --query "Reservations[*].Instances[*].[InstanceId, PrivateIpAddress, SubnetId]" \
+            --output json)
 
-# Step 1: Validate Credentials by Opening Connection
-try {
-    $connection = New-Object System.Data.SqlClient.SqlConnection -ArgumentList $connectionString
-    $connection.Open()
-    Write-Output "Connection successful to $serverName using SQL Authentication."
-    $connection.Close()
-}
-catch {
-    Write-Error "Connection Failed: $($_.Exception.Message)"
-    exit 1  # Stop execution if DB connection fails
-}
+          INSTANCE_ID=$(echo "$INSTANCE_DETAILS" | jq -r '.[0][0]')
+          PRIVATE_IP=$(echo "$INSTANCE_DETAILS" | jq -r '.[0][1]')
+          SUBNET_ID=$(echo "$INSTANCE_DETAILS" | jq -r '.[0][2]')
 
-# Step 2: Prepare SQL Package (DACPAC) Execution
-$SqlPackageFilePath = "C:\Program Files (x86)\Microsoft SQL Server\130\DAC\bin\SqlPackage.exe"
-$scriptToRun = "C:\Temp\dacpac-execution.ps1"
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "PRIVATE_IP=$PRIVATE_IP" >> $GITHUB_ENV
+          echo "SUBNET_ID=$SUBNET_ID" >> $GITHUB_ENV
 
-$Action = "Extract"
-$TargetServers = "abc.db.livestage6.test.abc.com"
-$DatabaseNames = "Abc"
+      - name: Get Subnet CIDR Block (IP Range)
+        id: get_subnet
+        run: |
+          CIDR_BLOCK=$(aws ec2 describe-subnets \
+            --subnet-ids $SUBNET_ID \
+            --query "Subnets[*].CidrBlock" \
+            --output text)
 
-$targetServerCollection = $TargetServers -split ","
-$databaseNameCollection = $DatabaseNames -split ","
+          echo "CIDR_BLOCK=$CIDR_BLOCK" >> $GITHUB_ENV
 
-# Generate the script to run the extraction
-@"
-`$SqlPackageFilePath = '$SqlPackageFilePath'
-`$targetServerCollection = '$TargetServers' -split ","
-`$databaseNameCollection = '$DatabaseNames' -split ","
-foreach (`$targetServer in `$targetServerCollection) {
-    foreach (`$databaseName in `$databaseNameCollection) {
-        `$connectionString = "Server=`$targetServer;Database=`$databaseName;User ID=$SQL_USER;Password=$SQL_PASSWORD;Encrypt=False;TrustServerCertificate=True;"
-        `$sqlPackageCommand = "/Action:$Action /TargetFile:C:\Temp\test.dacpac /SourceConnectionString=`"`$connectionString`""
-        `$fullCommand = "& `"`$SqlPackageFilePath`" `$sqlPackageCommand"
-        Invoke-Expression `$fullCommand
-    }
-}
-"@ | Out-File -FilePath $scriptToRun -Encoding utf8
-
-# Step 3: Run the Script using AWS SSM Run Command
-Start-Process powershell.exe -Credential $Credential -ArgumentList "-File $scriptToRun" -NoNewWindow -Wait
+      - name: Display Runner Network Details
+        run: |
+          echo "Runner Name: ${{ github.event.inputs.runner_name }}"
+          echo "Instance ID: $INSTANCE_ID"
+          echo "Private IP: $PRIVATE_IP"
+          echo "Subnet ID: $SUBNET_ID"
+          echo "Subnet CIDR Block (IP Range): $CIDR_BLOCK"
