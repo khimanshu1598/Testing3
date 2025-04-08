@@ -1,85 +1,42 @@
-param (
-    [string]$Action,
-    [string]$DacpacPath,
-    [string]$PublishProfilePath = "",
-    [string]$ServerInstance,
-    [string]$DatabaseName,
-    [string]$UserName,
-    [string]$Password,
-    [string]$SqlPackagePath,
-    [string]$OutputPath = ""
-)
-
-$ErrorActionPreference = "Stop"
-
-Write-Host "Script started. Action: $Action"
-
-# Validate sqlpackage.exe
-if (-not (Test-Path $SqlPackagePath)) {
-    throw "sqlpackage.exe not found at: $SqlPackagePath"
-}
-
-# Ensure output folder exists
-if ($OutputPath -ne "") {
-    $folder = Split-Path -Path $OutputPath -Parent
-    if (-not (Test-Path $folder)) {
-        Write-Host "Creating output directory: $folder"
-        New-Item -Path $folder -ItemType Directory -Force | Out-Null
-    }
-}
-
-# Build connection string
-$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
-
-# Initialize params
-$params = @()
-
-switch ($Action.ToLower()) {
-    "extract" {
-        if (-not $OutputPath) { throw "OutputPath is required for Extract" }
-        $params = @(
-            "/Action:Extract",
-            "/TargetFile:$OutputPath",
-            "/SourceConnectionString:$ConnectionString"
-        )
-    }
-    "deployreport" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
-        $params = @(
-            "/Action:DeployReport",
-            "/SourceFile:$DacpacPath",
-            "/TargetConnectionString:$ConnectionString",
-            "/OutputPath:$OutputPath"
-        )
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    "script" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
-        $params = @(
-            "/Action:Script",
-            "/SourceFile:$DacpacPath",
-            "/TargetConnectionString:$ConnectionString",
-            "/OutputPath:$OutputPath"
-        )
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    "publish" {
-        if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
-        $params = @(
-            "/Action:Publish",
-            "/SourceFile:$DacpacPath",
-            "/TargetConnectionString:$ConnectionString"
-        )
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    default { throw "Unsupported Action: $Action" }
-}
-
-# Execute
-Write-Host "Running sqlpackage with: $params"
-& $SqlPackagePath $params
-
-if ($LASTEXITCODE -ne 0) {
-    throw "sqlpackage failed with exit code $LASTEXITCODE"
-}
-Write-Host "Completed successfully"
+Run $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+  $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+  powershell -ExecutionPolicy Bypass -File "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api/od-gha-files/sqlpackage-runner-fixed.ps1" `
+    -Action Extract `
+    -OutputPath "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\***-extracted.dacpac" `
+    -ServerInstance "***" `
+    -DatabaseName "***" `
+    -UserName "HimanshuSuccessUser" `
+  *** `
+    -SqlPackagePath "C:\sqlpackage\sqlpackage.exe"
+  shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
+  env:
+    DACPAC_OUTPUT_DIR: C:\dacpac-extracts
+    SQLPACKAGE_DIR: C:\sqlpackage
+    INSTANCE_ID: ***
+    S3_BUCKET_NAME: ***
+    S3_BUCKET_KEY: ***
+    SQL_PASSWORD_PARAMETER_STORE: ***
+    SQL_USER_NAME: HimanshuSuccessUser
+    OD_GHA_FILE_PATH: od-gha-files
+    AWS_REGION: us-west-2
+    DB_SERVER_NAME: ***
+    DB_NAME: ***
+    XERO_RUNNER_DEPLOYTRACK_TOKEN: ***
+    ENV_NAME_EXTRACTED: test
+    AWS_DEFAULT_REGION: us-west-2
+    AWS_ACCESS_KEY_ID: ***
+    AWS_SECRET_ACCESS_KEY: ***
+    AWS_SESSION_TOKEN: ***
+    SQLPACKAGE_PATH: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Script started. Action: Extract
+sqlpackage.exe not found at: C:\sqlpackage\sqlpackage.exe
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:19 char:5
++     throw "sqlpackage.exe not found at: $SqlPackagePath"
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (sqlpackage.exe ...\sqlpackage.exe:String) [], RuntimeException
+    + FullyQualifiedErrorId : sqlpackage.exe not found at: C:\sqlpackage\sqlpackage.exe
