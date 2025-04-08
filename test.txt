@@ -1,54 +1,67 @@
-name: Get GitHub Runner Subnet and IP Range
-
-on:
-  workflow_dispatch:
-    inputs:
-      runner_name:
-        description: "Name of the self-hosted runner"
-        required: true
-        type: string
-
-jobs:
-  fetch-runner-details:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS CLI
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-region: us-east-1  # Change this to your AWS region
-          role-to-assume: arn:aws:iam::123456789012:role/github-actions-role  # Change to your IAM role
-
-      - name: Find EC2 Instance (GitHub Runner)
-        id: get_instance
-        run: |
-          RUNNER_NAME="${{ github.event.inputs.runner_name }}"
-          INSTANCE_DETAILS=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=$RUNNER_NAME" \
-            --query "Reservations[*].Instances[*].[InstanceId, PrivateIpAddress, SubnetId]" \
-            --output json)
-
-          INSTANCE_ID=$(echo "$INSTANCE_DETAILS" | jq -r '.[0][0]')
-          PRIVATE_IP=$(echo "$INSTANCE_DETAILS" | jq -r '.[0][1]')
-          SUBNET_ID=$(echo "$INSTANCE_DETAILS" | jq -r '.[0][2]')
-
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "PRIVATE_IP=$PRIVATE_IP" >> $GITHUB_ENV
-          echo "SUBNET_ID=$SUBNET_ID" >> $GITHUB_ENV
-
-      - name: Get Subnet CIDR Block (IP Range)
-        id: get_subnet
-        run: |
-          CIDR_BLOCK=$(aws ec2 describe-subnets \
-            --subnet-ids $SUBNET_ID \
-            --query "Subnets[*].CidrBlock" \
-            --output text)
-
-          echo "CIDR_BLOCK=$CIDR_BLOCK" >> $GITHUB_ENV
-
-      - name: Display Runner Network Details
-        run: |
-          echo "Runner Name: ${{ github.event.inputs.runner_name }}"
-          echo "Instance ID: $INSTANCE_ID"
-          echo "Private IP: $PRIVATE_IP"
-          echo "Subnet ID: $SUBNET_ID"
-          echo "Subnet CIDR Block (IP Range): $CIDR_BLOCK"
+2s
+Run $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+  $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+  powershell -ExecutionPolicy Bypass -File "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api/od-gha-files/sqlpackage-runner-fixed.ps1" `
+    -Action Extract `
+    -OutputPath "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\***-extracted.dacpac" `
+    -ServerInstance "***" `
+    -DatabaseName "***" `
+    -UserName "HimanshuSuccessUser" `
+  *** `
+    -SqlPackagePath "C:\sqlpackage\sqlpackage.exe"
+  shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
+  env:
+    DACPAC_OUTPUT_DIR: C:\dacpac-extracts
+    SQLPACKAGE_DIR: C:\sqlpackage
+    INSTANCE_ID: ***
+    S3_BUCKET_NAME: ***
+    S3_BUCKET_KEY: ***
+    SQL_PASSWORD_PARAMETER_STORE: ***
+    SQL_USER_NAME: HimanshuSuccessUser
+    OD_GHA_FILE_PATH: od-gha-files
+    AWS_REGION: us-west-2
+    DB_SERVER_NAME: ***
+    DB_NAME: ***
+    XERO_RUNNER_DEPLOYTRACK_TOKEN: ***
+    ENV_NAME_EXTRACTED: test
+    AWS_DEFAULT_REGION: us-west-2
+    AWS_ACCESS_KEY_ID: ***
+    AWS_SECRET_ACCESS_KEY: ***
+    AWS_SESSION_TOKEN: ***
+    SQLPACKAGE_PATH: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
+  
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:38 char:18
++ if ($Action -eq "Extract") {
++                  ~~~~~~~~~~~
+Unexpected token 'Extract") {
+    if (-not $OutputPath) { throw "âŒ' in expression or statement.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:98 char:76
++ ... te-Error "`nâŒ Action [$Action] failed with exit code $LASTEXITCODE"
++                                                                         ~
+The string is missing the terminator: ".
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:26 char:35
++     if (-not (Test-Path $folder)) {
++                                   ~
+Missing closing '}' in statement block or type definition.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:24 char:25
++ if ($OutputPath -ne "") {
++                         ~
+Missing closing '}' in statement block or type definition.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:5 char:35
++     [string]$PublishProfilePath = "",
++                                   ~~
+The assignment expression is not valid. The input to an assignment operator must be an object that is able to accept 
+assignments, such as a variable or a property.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : UnexpectedToken
+ 
+Error: Process completed with exit code 1.
