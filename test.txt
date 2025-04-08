@@ -65,3 +65,107 @@ assignments, such as a variable or a property.
     + FullyQualifiedErrorId : UnexpectedToken
  
 Error: Process completed with exit code 1.
+
+
+===================
+
+param (
+    [string]$Action,
+    [string]$DacpacPath,
+    [string]$PublishProfilePath = "",
+    [string]$ServerInstance,
+    [string]$DatabaseName,
+    [string]$UserName,
+    [string]$Password,
+    [string]$SqlPackagePath,
+    [string]$OutputPath = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "🟢 Script started. Action: $Action"
+
+# Validate sqlpackage.exe
+if (-not (Test-Path $SqlPackagePath)) {
+    throw "❌ sqlpackage.exe not found at: $SqlPackagePath"
+}
+
+# Ensure output folder exists
+if ($OutputPath -ne "") {
+    $folder = Split-Path -Path $OutputPath -Parent
+    if (-not (Test-Path $folder)) {
+        Write-Host "📁 Creating output directory: $folder"
+        New-Item -Path $folder -ItemType Directory -Force | Out-Null
+    } else {
+        Write-Host "✅ Output directory exists: $folder"
+    }
+}
+
+# Build connection string
+$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
+
+# Initialize params
+$params = @()
+
+switch ($Action) {
+    "Extract" {
+        if (-not $OutputPath) { throw "❌ OutputPath is required for Extract" }
+        $params = @(
+            "/Action:Extract"
+            "/TargetFile:$OutputPath"
+            "/SourceConnectionString:$ConnectionString"
+        )
+    }
+    "DeployReport" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "❌ OutputPath and DacpacPath required for DeployReport" }
+        $params = @(
+            "/Action:DeployReport"
+            "/SourceFile:$DacpacPath"
+            "/TargetConnectionString:$ConnectionString"
+            "/OutputPath:$OutputPath"
+        )
+        if ($PublishProfilePath) {
+            $params += "/Profile:$PublishProfilePath"
+        }
+    }
+    "Script" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "❌ OutputPath and DacpacPath required for Script" }
+        $params = @(
+            "/Action:Script"
+            "/SourceFile:$DacpacPath"
+            "/TargetConnectionString:$ConnectionString"
+            "/OutputPath:$OutputPath"
+        )
+        if ($PublishProfilePath) {
+            $params += "/Profile:$PublishProfilePath"
+        }
+    }
+    "Publish" {
+        if (-not $DacpacPath) { throw "❌ DacpacPath required for Publish" }
+        $params = @(
+            "/Action:Publish"
+            "/SourceFile:$DacpacPath"
+            "/TargetConnectionString:$ConnectionString"
+        )
+        if ($PublishProfilePath) {
+            $params += "/Profile:$PublishProfilePath"
+        }
+    }
+    default {
+        throw "❌ Unsupported Action: $Action"
+    }
+}
+
+# Show and run the command
+Write-Host "`n🚀 Running sqlpackage with parameters:"
+$params | ForEach-Object { Write-Host $_ }
+
+& $SqlPackagePath $params
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "`n✅ sqlpackage [$Action] completed successfully"
+} else {
+    Write-Error "`n❌ sqlpackage [$Action] failed with exit code $LASTEXITCODE"
+    exit $LASTEXITCODE
+}
+
