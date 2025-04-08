@@ -1,74 +1,3 @@
-2s
-Run $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-  $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-  powershell -ExecutionPolicy Bypass -File "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api/od-gha-files/sqlpackage-runner-fixed.ps1" `
-    -Action Extract `
-    -OutputPath "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\***-extracted.dacpac" `
-    -ServerInstance "***" `
-    -DatabaseName "***" `
-    -UserName "HimanshuSuccessUser" `
-  *** `
-    -SqlPackagePath "C:\sqlpackage\sqlpackage.exe"
-  shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
-  env:
-    DACPAC_OUTPUT_DIR: C:\dacpac-extracts
-    SQLPACKAGE_DIR: C:\sqlpackage
-    INSTANCE_ID: ***
-    S3_BUCKET_NAME: ***
-    S3_BUCKET_KEY: ***
-    SQL_PASSWORD_PARAMETER_STORE: ***
-    SQL_USER_NAME: HimanshuSuccessUser
-    OD_GHA_FILE_PATH: od-gha-files
-    AWS_REGION: us-west-2
-    DB_SERVER_NAME: ***
-    DB_NAME: ***
-    XERO_RUNNER_DEPLOYTRACK_TOKEN: ***
-    ENV_NAME_EXTRACTED: test
-    AWS_DEFAULT_REGION: us-west-2
-    AWS_ACCESS_KEY_ID: ***
-    AWS_SECRET_ACCESS_KEY: ***
-    AWS_SESSION_TOKEN: ***
-    SQLPACKAGE_PATH: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
-  
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:38 char:18
-+ if ($Action -eq "Extract") {
-+                  ~~~~~~~~~~~
-Unexpected token 'Extract") {
-    if (-not $OutputPath) { throw "âŒ' in expression or statement.
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:98 char:76
-+ ... te-Error "`nâŒ Action [$Action] failed with exit code $LASTEXITCODE"
-+                                                                         ~
-The string is missing the terminator: ".
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:26 char:35
-+     if (-not (Test-Path $folder)) {
-+                                   ~
-Missing closing '}' in statement block or type definition.
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:24 char:25
-+ if ($OutputPath -ne "") {
-+                         ~
-Missing closing '}' in statement block or type definition.
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:5 char:35
-+     [string]$PublishProfilePath = "",
-+                                   ~~
-The assignment expression is not valid. The input to an assignment operator must be an object that is able to accept 
-assignments, such as a variable or a property.
-    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : UnexpectedToken
- 
-Error: Process completed with exit code 1.
-
-
-===================
-
 param (
     [string]$Action,
     [string]$DacpacPath,
@@ -83,21 +12,19 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "🟢 Script started. Action: $Action"
+Write-Host "Script started. Action: $Action"
 
 # Validate sqlpackage.exe
 if (-not (Test-Path $SqlPackagePath)) {
-    throw "❌ sqlpackage.exe not found at: $SqlPackagePath"
+    throw "sqlpackage.exe not found at: $SqlPackagePath"
 }
 
 # Ensure output folder exists
 if ($OutputPath -ne "") {
     $folder = Split-Path -Path $OutputPath -Parent
     if (-not (Test-Path $folder)) {
-        Write-Host "📁 Creating output directory: $folder"
+        Write-Host "Creating output directory: $folder"
         New-Item -Path $folder -ItemType Directory -Force | Out-Null
-    } else {
-        Write-Host "✅ Output directory exists: $folder"
     }
 }
 
@@ -107,65 +34,52 @@ $ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserNam
 # Initialize params
 $params = @()
 
-switch ($Action) {
-    "Extract" {
-        if (-not $OutputPath) { throw "❌ OutputPath is required for Extract" }
+switch ($Action.ToLower()) {
+    "extract" {
+        if (-not $OutputPath) { throw "OutputPath is required for Extract" }
         $params = @(
-            "/Action:Extract"
-            "/TargetFile:$OutputPath"
+            "/Action:Extract",
+            "/TargetFile:$OutputPath",
             "/SourceConnectionString:$ConnectionString"
         )
     }
-    "DeployReport" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "❌ OutputPath and DacpacPath required for DeployReport" }
+    "deployreport" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
         $params = @(
-            "/Action:DeployReport"
-            "/SourceFile:$DacpacPath"
-            "/TargetConnectionString:$ConnectionString"
+            "/Action:DeployReport",
+            "/SourceFile:$DacpacPath",
+            "/TargetConnectionString:$ConnectionString",
             "/OutputPath:$OutputPath"
         )
-        if ($PublishProfilePath) {
-            $params += "/Profile:$PublishProfilePath"
-        }
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
     }
-    "Script" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "❌ OutputPath and DacpacPath required for Script" }
+    "script" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
         $params = @(
-            "/Action:Script"
-            "/SourceFile:$DacpacPath"
-            "/TargetConnectionString:$ConnectionString"
+            "/Action:Script",
+            "/SourceFile:$DacpacPath",
+            "/TargetConnectionString:$ConnectionString",
             "/OutputPath:$OutputPath"
         )
-        if ($PublishProfilePath) {
-            $params += "/Profile:$PublishProfilePath"
-        }
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
     }
-    "Publish" {
-        if (-not $DacpacPath) { throw "❌ DacpacPath required for Publish" }
+    "publish" {
+        if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
         $params = @(
-            "/Action:Publish"
-            "/SourceFile:$DacpacPath"
+            "/Action:Publish",
+            "/SourceFile:$DacpacPath",
             "/TargetConnectionString:$ConnectionString"
         )
-        if ($PublishProfilePath) {
-            $params += "/Profile:$PublishProfilePath"
-        }
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
     }
-    default {
-        throw "❌ Unsupported Action: $Action"
-    }
+    default { throw "Unsupported Action: $Action" }
 }
 
-# Show and run the command
-Write-Host "`n🚀 Running sqlpackage with parameters:"
-$params | ForEach-Object { Write-Host $_ }
-
+# Execute
+Write-Host "Running sqlpackage with: $params"
 & $SqlPackagePath $params
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "`n✅ sqlpackage [$Action] completed successfully"
-} else {
-    Write-Error "`n❌ sqlpackage [$Action] failed with exit code $LASTEXITCODE"
-    exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) {
+    throw "sqlpackage failed with exit code $LASTEXITCODE"
 }
-
+Write-Host "Completed successfully"
