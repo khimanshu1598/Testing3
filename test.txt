@@ -3,20 +3,20 @@ description: 'Generates a secure random password and stores it in AWS SSM Parame
 
 inputs:
   parameter-name:
-    description: 'AWS SSM parameter path (e.g., /prod/db/password)'
+    description: 'SSM Parameter Store path (e.g., /prod/db/password)'
     required: true
-  aws-region:
-    description: 'AWS region (default: us-east-1)'
-    default: 'us-east-1'
   password-length:
     description: 'Password length (default: 16)'
     default: '16'
+  aws-region:
+    description: 'AWS region (default: us-east-1)'
+    default: 'us-east-1'
 
 outputs:
   parameter-path:
-    description: 'The SSM parameter path where password is stored'
+    description: 'The SSM path where password was stored'
   password-valid:
-    description: 'Whether password meets complexity requirements'
+    description: 'Whether password met complexity rules'
 
 runs:
   using: "composite"
@@ -24,33 +24,28 @@ runs:
     - name: Generate password
       shell: pwsh
       run: |
-        # Generate password with complexity requirements
+        # Generate password with 4-character types
         $password = -join (
-          (65..90) +          # A-Z
-          (97..122) +         # a-z
-          (48..57) +          # 0-9
-          (33..47) |          # Special chars
+          (65..90) +   # A-Z
+          (97..122) +  # a-z
+          (48..57) +   # 0-9
+          (33..47) |   # !"#$%&'()*+,-./
           Get-Random -Count ${{ inputs.password-length }} | 
           ForEach-Object { [char]$_ }
         )
 
-        # Verify complexity
-        $hasUpper = $password -cmatch '[A-Z]'
-        $hasLower = $password -match '[a-z]'
-        $hasNumber = $password -match '\d'
-        $hasSpecial = $password -match '[^\w]'
-        $isValid = $hasUpper -and $hasLower -and $hasNumber -and $hasSpecial
-
-        if (-not $isValid) {
-          echo "::error::Password generation failed complexity check!"
-          exit 1
-        }
+        # Verify complexity (customize rules as needed)
+        $isValid = $password -match '[A-Z]' -and 
+                   $password -match '[a-z]' -and 
+                   $password -match '\d' -and 
+                   $password -match '[^\w]'
 
         echo "::add-mask::$password"
         echo "generated-password=$password" >> $GITHUB_OUTPUT
-        echo "password-valid=true" >> $GITHUB_OUTPUT
+        echo "password-valid=$isValid" >> $GITHUB_OUTPUT
 
     - name: Store in Parameter Store
+      if: steps.generate-password.outputs.password-valid == 'true'
       shell: pwsh
       run: |
         aws ssm put-parameter \
@@ -60,23 +55,24 @@ runs:
           --overwrite \
           --region "${{ inputs.aws-region }}"
         echo "parameter-path=${{ inputs.parameter-name }}" >> $GITHUB_OUTPUT
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-
-==================
+==============================
 
 steps:
-  - name: Generate database password
-    id: generate-db-pass
+  - uses: aws-actions/configure-aws-credentials@v4  # Required for OIDC
+    with:
+      role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      aws-region: us-east-1
+
+  - name: Generate and store password
+    id: password-gen
     uses: ./.github/actions/generate-password
     with:
-      parameter-name: '/prod/mysql/master-password'
-      aws-region: 'us-west-2'
+      parameter-name: '/prod/db/master-password'
       password-length: 24
+      aws-region: us-east-1
 
-  - name: Verify storage
+  - name: Verify result
     run: |
-      echo "Password stored at: ${{ steps.generate-db-pass.outputs.parameter-path }}"
-      echo "Complexity valid: ${{ steps.generate-db-pass.outputs.password-valid }}"
+      echo "Password stored at: ${{ steps.password-gen.outputs.parameter-path }}"
+      echo "Complexity valid: ${{ steps.password-gen.outputs.password-valid }}"
