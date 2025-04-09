@@ -1,430 +1,82 @@
-jobs:
-  test-ssm:
-      runs-on: [self-hosted, windows, runners-us-west-2]
-      environment: test
-      steps:
-        - name: "Checkout"
-          uses: actions/checkout@v4
-
-        - name: Assume OIDC role
-          id: assume_oidc_role
-          uses: xero-internal/github-actions/aws-assume-oidc@main
-          with:
-            oidc-role-to-assume: ${{ vars.oidc_role_arn }}
-            target-role-to-assume: ${{ vars.deployment_role_arn }}
-            aws-region: ${{ env.AWS_REGION }}
-
-        - name: Testing the Network Connectivity
-          run: |
-            Test-NetConnection -ComputerName $env:DB_SERVER_NAME -Port 1433
-
-        - name: ✅ Download and install ODBC Driver 17
-          run: |
-            Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2307162" -OutFile "C:\Temp\msodbcsql.msi"
-            Start-Process msiexec.exe -Wait -ArgumentList '/i C:\Temp\msodbcsql.msi /quiet /norestart IACCEPTMSODBCSQLLICENSETERMS=YES'
-
-
-
-        - name: ✅ Download and install classic SQLCMD with exit code check
-          run: |
-            choco install sqlcmd -y
-
-        - name: 📦 Download and install sqlpackage
-          run: |
-            $zipUrl = "https://aka.ms/sqlpackage-windows"
-            $downloadPath = "${{ github.workspace }}\sqlpackage.zip" 
-            $extractPath = "${{ github.workspace }}\sqlpackage"
-            Write-Host "SQLPackage will be installed in: $extractPath"
-
-            # Ensure Temp path exists
-            if (-not (Test-Path "C:\Temp")) {
-              New-Item -Path "C:\Temp" -ItemType Directory | Out-Null
-            }
-
-            Invoke-WebRequest -Uri $zipUrl -OutFile $downloadPath -UseBasicParsing
-
-            if (Test-Path $extractPath) {
-              Remove-Item -Path $extractPath -Recurse -Force
-            }
-            Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
-            Remove-Item $downloadPath
-
-            echo "SQLPACKAGE_PATH=$extractPath" >> $env:GITHUB_ENV
-
-        - name: Install aws CLI
-          run: |
-            choco install awscli -y
-
-
-        - name: Validate if the SQL User exists and delete the SQL User
-          run: |
-
-            $localScriptPath = "${{ github.workspace }}\od-gha-files\sql-actions.ps1"  # Replace with your local script path
-            $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-
-            # Step 1: Upload PowerShell script to S3
-            Write-Host "Uploading script to S3..."
-            aws s3 cp $localScriptPath s3://$env:S3_BUCKET_NAME/$env:S3_BUCKET_KEY
-
-            # Step 2: Send SSM Command to EC2 instance to download and run the script
-            Write-Host "Sending SSM command to EC2 instance..."
-
-            # Command to run on EC2 instance: Download script from S3 and run it
-            $command = "aws s3 cp s3://$env:S3_BUCKET_NAME/$env:S3_BUCKET_KEY C:\temp\myscript.ps1; powershell -ExecutionPolicy Bypass -File C:\temp\myscript.ps1 -serverInstance ""$env:DB_SERVER_NAME"" -databaseName ""$env:DB_NAME"" -sqlUserName ""$env:SQL_USER_NAME"" -sqlPassword ""$retrievedPassword"" -adUserSsmPassword ""/secure/dbpassword"" -sqlActivity ""validate-delete-user"""
-
-
-            # Now we need to pass this command to AWS SSM properly, ensuring it's correctly quoted and escaped
-            $escapedCommand = "`"$command`""
-
-            # Send the SSM command to the EC2 instance
-            $ssmCommand = aws ssm send-command `
-                --document-name "AWS-RunPowerShellScript" `
-                --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-                --parameters "commands=[$escapedCommand]" `
-                --query "Command.CommandId" `
-                --output text `
-                --comment "Running PowerShell script from S3 on EC2 instance to delete SQL User if exists"
-            $commandId = $ssmCommand
-
-            # Check if the command was successful
-            if ($ssmCommand) {
-                Write-Host "SSM command sent successfully!"
-                aws ssm wait command-executed `
-                  --command-id $commandId `
-                  --instance-id $env:INSTANCE_ID
-            } else {
-                Write-Host "Failed to send SSM command."
-            }
-            # Get the status of the command using the command ID
-            $commandStatus = aws ssm list-command-invocations `
-                --command-id $commandId `
-                --details `
-                --output json
-
-            Write-Host $commandStatus
-
-            # Step 3: Extract the exit code from the command status
-            $standardError = ($commandStatus | ConvertFrom-Json).CommandInvocations[0].CommandPlugins[0].Output
-
-            # Step 4: Check if the exit code is 0 (success)
-            if ($standardError -contains "ERROR") {
-                Write-Host "Error detected in the command output:"
-                Write-Host $standardError
-                exit 1
-            } else {
-                Write-Host "No error detected in the command output."
-            }
-
-        - name: 📦 Create a New SQL User and grant permissions to the new user.
-          run: |
-            
-            # Configure AWS CLI (ensure credentials are set up or use IAM role on EC2)
-            aws configure set region $env:AWS_REGION
-
-            # Step 2: Generate Password
-            $lowercase = [char[]](97..122 | ForEach-Object { [char]$_ })
-            $uppercase = [char[]](65..90 | ForEach-Object { [char]$_ })   # 65 = 'A', 90 = 'Z'
-            $digits = "0".."9" 
-            $specialChars = "!@#$%"
-
-            $randomlowercase = Get-Random -Count 2 -InputObject $lowercase
-            $randomlowercaseString = -join $randomLetters
-            $randomuppercase = Get-Random -Count 2 -InputObject $uppercase
-            $randomuppercaseString = -join $randomuppercase
-            $randomdigits = Get-Random -Count 2 -InputObject $digits
-            $randomdigitsString = -join $randomdigits
-            $specialChars = Get-Random -Count 2 -InputObject $specialChars.ToCharArray()
-            $randomdspecialCharsString = -join $specialChars
-
-
-            $allChars = $lowerCase + $uppercase + $digits
-            $remainingChars= $allChars | Get-Random -Count 4
-            $randomdremainingChars = -join $remainingChars
-            # Combine all the random strings into one string
-            $sqlPassword = $randomlowercaseString + $randomuppercaseString + $randomdigitsString + $randomdspecialCharsString + $randomdremainingChars
-
-
-            # Step 3: Send SSM Command to EC2 instance to download and run the script
-            Write-Host "Sending SSM command to EC2 instance..."
-
-            # Command to run on EC2 instance: Download script from S3 and run it
-            $command = "aws s3 cp s3://$env:S3_BUCKET_NAME/$env:S3_BUCKET_KEY C:\temp\myscript.ps1; powershell -ExecutionPolicy Bypass -File C:\temp\myscript.ps1 -serverInstance ""$env:DB_SERVER_NAME"" -databaseName ""$env:DB_NAME"" -sqlUserName ""$env:SQL_USER_NAME"" -sqlPassword ""$sqlPassword"" -adUserSsmPassword ""/secure/dbpassword"" -sqlActivity ""create-user"""
-
-            # Now we need to pass this command to AWS SSM properly, ensuring it's correctly quoted and escaped
-            $escapedCommand = "`"$command`""
-
-            # Send the SSM command to the EC2 instance
-            $ssmCommand = aws ssm send-command `
-                --document-name "AWS-RunPowerShellScript" `
-                --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-                --parameters "commands=[$escapedCommand]" `
-                --query "Command.CommandId" `
-                --output text `
-                --comment "Running PowerShell script from S3 on EC2 instance to create SQL User"
-
-            $commandId = $ssmCommand
-            # Check if the command was successful
-            if ($ssmCommand) {
-                Write-Host "SSM command sent successfully!"
-                aws ssm wait command-executed `
-                  --command-id $commandId `
-                  --instance-id $env:INSTANCE_ID
-            } else {
-                Write-Host "Failed to send SSM command."
-            }
-
-            # Get the status of the command using the command ID
-            $commandStatus = aws ssm list-command-invocations `
-                --command-id $commandId `
-                --details `
-                --output json
-
-            Write-Host $commandStatus
-
-            # Step 3: Extract the exit code from the command status
-            $standardError = ($commandStatus | ConvertFrom-Json).CommandInvocations[0].CommandPlugins[0].Output
-
-            # Step 4: Check if the exit code is 0 (success)
-            if ($standardError -contains "ERROR") {
-                Write-Host "Error detected in the command output:"
-                Write-Host $standardError
-                exit 1
-            } else {
-                Write-Host "No error detected in the command output."
-            }
-
-            aws ssm put-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --value $sqlPassword --type SecureString --overwrite
-            Write-Host "Password stored in SSM Parameter Store."
-
-
-        # - name: Generate random password
-        #   shell: powershell
-        #   run: |
-        #     $sqlPassword = powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/generate-password.ps1"
-        #     aws ssm put-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --value $sqlPassword --type SecureString --overwrite
-        #     Write-Host "Password stored in SSM Parameter Store."
-
-
-        # - name: 📦 Create a New SQL User and grant permissions to the new user.
-        #   run: |
-        #     $localScriptPath = "${{ github.workspace }}\od-gha-files\sql-actions.ps1"  # Replace with your local script path
-
-        #     # Configure AWS CLI (ensure credentials are set up or use IAM role on EC2)
-        #     aws configure set region $env:AWS_REGION
-
-        #     # Step 1: Upload PowerShell script to S3
-        #     Write-Host "Uploading script to S3..."
-        #     aws s3 cp $localScriptPath s3://$env:S3_BUCKET_NAME/$env:S3_BUCKET_KEY
-
-
-        #     # Step 3: Send SSM Command to EC2 instance to download and run the script
-        #     Write-Host "Sending SSM command to EC2 instance..."
-
-        #     $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-
-        #     # Command to run on EC2 instance: Download script from S3 and run it
-        #     $command = "aws s3 cp s3://$env:S3_BUCKET_NAME/$env:S3_BUCKET_KEY C:\temp\myscript.ps1; powershell -ExecutionPolicy Bypass -File C:\temp\myscript.ps1 -serverInstance ""$env:DB_SERVER_NAME"" -databaseName ""$env:DB_NAME"" -sqlUserName ""$env:SQL_USER_NAME"" -sqlPassword ""$sqlPassword"" -adUserSsmPassword ""/secure/dbpassword"" -sqlActivity ""create-user"""
-
-        #     # Now we need to pass this command to AWS SSM properly, ensuring it's correctly quoted and escaped
-        #     $escapedCommand = "`"$command`""
-
-        #     # Send the SSM command to the EC2 instance
-        #     $ssmCommand = aws ssm send-command `
-        #         --document-name "AWS-RunPowerShellScript" `
-        #         --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-        #         --parameters "commands=[$escapedCommand]" `
-        #         --query "Command.CommandId" `
-        #         --output text `
-        #         --comment "Running PowerShell script from S3 on EC2 instance to create SQL User"
-
-        #     $commandId = $ssmCommand
-        #     aws ssm put-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --value $sqlPassword --type SecureString --overwrite
-        #     Write-Host "Password stored in SSM Parameter Store."
-
-        #     # Check if the command was successful
-        #     if ($ssmCommand) {
-        #         Write-Host "SSM command sent successfully!"
-        #         aws ssm wait command-executed `
-        #           --command-id $commandId `
-        #           --instance-id $env:INSTANCE_ID
-        #     } else {
-        #         Write-Host "Failed to send SSM command."
-        #     }
-
-        - name: List of SQL Users In DB Before Creating New User
-          run: |
-            $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-            $output = sqlcmd -S $env:DB_SERVER_NAME -U $env:SQL_USER_NAME -P $retrievedPassword -Q "USE $env:DB_NAME; SELECT name FROM sys.database_principals WHERE type IN ('S', 'U', 'G') AND name NOT LIKE 'dbo';"
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "✅ List of Users: -"
-              Write-Host $output
-            } else {
-              Write-Host "❌ Failed to connect to SQL Server. Exit Code: $LASTEXITCODE"
-              exit $LASTEXITCODE
-            }
-
-        - name: Detailed Directory Listing Before Extraction in Tree Structure
-          run: |
-            tree ${{ github.workspace }} /F /A
-          shell: cmd
-
-        - name: 🧪 Extract DACPAC
-          run: |
-              $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-              powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
-                -Action Extract `
-                -OutputPath "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac" `
-                -ServerInstance "${{ env.DB_SERVER_NAME }}" `
-                -DatabaseName "DBA" `
-                -UserName "${{ env.SQL_USER_NAME }}" `
-                -Password "$retrievedPassword" `
-                -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
-          shell: powershell
-        
-        - name: Verify DACPAC
-          run: |
-            $dacpacFile = Get-Item "${{ github.workspace }}\dacpacs\*.dacpac"
-            if (-not $dacpacFile -or $dacpacFile.Length -eq 0) {
-              throw "DACPAC file not found or is empty"
-            }
-            Write-Host "DACPAC file created successfully at $($dacpacFile.FullName)"
-          shell: powershell
-      
-        # - name: Detailed Directory Listing After Extraction in Tree Structure
-        #   run: |
-        #     tree ${{ github.workspace }} /F /A
-        #   shell: cmd
-
-        # - name: 📤 Extract DACPAC from SQL Server
-        #   run: |
-        #     $env:Path += ";$env:SQLPACKAGE_PATH"
-
-        #     $outputFolder = "C:\Temp\dacpac"
-        #     $dacpacFile = "$outputFolder\$env:DB_NAME.dacpac"
-
-        #     if (-not (Test-Path $outputFolder)) {
-        #       New-Item -ItemType Directory -Path $outputFolder | Out-Null
-        #     }
-
-        #     $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-
-        #     $connectionString = "Server=$env:DB_SERVER_NAME;Database=$env:DB_NAME;User=$env:SQL_USER_NAME;Password=$retrievedPassword;Encrypt=True;TrustServerCertificate=True;"
-
-        #     $sqlPackagePath = "$env:SQLPACKAGE_PATH\sqlpackage.exe"
-
-        #     if (-not (Test-Path -Path $sqlPackagePath)) {
-        #       Write-Error "❌ sqlpackage.exe not found at $sqlPackagePath"
-        #       exit 1
-        #     }
-
-        #     $params = @(
-        #       "/Action:Extract"
-        #       "/TargetFile:$dacpacFile"
-        #       "/SourceConnectionString:$connectionString"
-        #       "/p:VerifyExtraction=true"
-        #       "/p:IgnorePermissions=false"
-        #       "/p:IgnoreUserLoginMappings=false"
-        #     )
-
-        #     & $sqlPackagePath $params
-
-        #     if ($LASTEXITCODE -eq 0) {
-        #       Write-Host "✅ DACPAC successfully extracted to $dacpacFile"
-        #     } else {
-        #       Write-Error "❌ DACPAC extraction failed with exit code $LASTEXITCODE"
-        #       exit $LASTEXITCODE
-        #     }
-        - name: 📦 Delete a New SQL User.
-          run: |
-            
-            # Configure AWS CLI (ensure credentials are set up or use IAM role on EC2)
-            aws configure set region $env:AWS_REGION
-
-            $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-
-
-            # Step 2: Send SSM Command to EC2 instance to download and run the script
-            Write-Host "Sending SSM command to EC2 instance..."
-
-            # Command to run on EC2 instance: Download script from S3 and run it
-            $command = "aws s3 cp s3://$env:S3_BUCKET_NAME/$env:S3_BUCKET_KEY C:\temp\myscript.ps1; powershell -ExecutionPolicy Bypass -File C:\temp\myscript.ps1 -serverInstance ""$env:DB_SERVER_NAME"" -databaseName ""$env:DB_NAME"" -sqlUserName ""$env:SQL_USER_NAME"" -sqlPassword ""$retrievedPassword"" -adUserSsmPassword ""/secure/dbpassword"" -sqlActivity ""delete-user"""
-
-
-            # Now we need to pass this command to AWS SSM properly, ensuring it's correctly quoted and escaped
-            $escapedCommand = "`"$command`""
-
-            # Send the SSM command to the EC2 instance
-            $ssmCommand = aws ssm send-command `
-                --document-name "AWS-RunPowerShellScript" `
-                --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-                --parameters "commands=[$escapedCommand]" `
-                --query "Command.CommandId" `
-                --output text `
-                --comment "Running PowerShell script from S3 on EC2 instance to delete SQL User"
-            $commandId = $ssmCommand
-
-            # Check if the command was successful
-            if ($ssmCommand) {
-                Write-Host "SSM command sent successfully!"
-                aws ssm wait command-executed `
-                  --command-id $commandId `
-                  --instance-id $env:INSTANCE_ID
-            } else {
-                Write-Host "Failed to send SSM command."
-            }
-            # Get the status of the command using the command ID
-            $commandStatus = aws ssm list-command-invocations `
-                --command-id $commandId `
-                --details `
-                --output json
-
-            Write-Host $commandStatus
-
-            # Step 3: Extract the exit code from the command status
-            $standardError = ($commandStatus | ConvertFrom-Json).CommandInvocations[0].CommandPlugins[0].Output
-
-            # Step 4: Check if the exit code is 0 (success)
-            if ($standardError -contains "ERROR") {
-                Write-Host "Error detected in the command output:"
-                Write-Host $standardError
-                exit 1
-            } else {
-                Write-Host "No error detected in the command output."
-            }
-
-
-#      This is not required as of now but might need in future. Please do not delete it.
-
-
-            # - name: ✅ Verify SQLCMD Installation
-        #   run: |
-        #     # Check if sqlcmd is available
-        #     try {
-        #       sqlcmd -?
-        #     }
-        #     catch {
-        #       Write-Error "❌ sqlcmd is not installed or accessible."
-        #       exit 1
-        #     }
-
-        #     # Fetch the path to sqlcmd
-        #     $sqlcmdPath = (Get-Command sqlcmd).Source
-        #     Write-Output "sqlcmd is located at: $sqlcmdPath"
-
-        # - name: ✅ Download and install classic SQLCMD
-        #   run: |
-        #     Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2216599" -OutFile "C:\Temp\SqlCmdLnUtils.msi"
-        #     Start-Process msiexec.exe -Wait -ArgumentList '/i C:\Temp\SqlCmdLnUtils.msi /quiet /norestart IACCEPTSQLCMDLNUTILSLICENSETERMS=YES'
-
-
-        
-
-        # - name: 🔍 Verify ODBC Driver Installed
-        #   run: |
-        #     $odbcDriver = Get-OdbcDriver | Where-Object { $_.Name -like "*SQL Server*" }
-        #     if (-not $odbcDriver) {
-        #       Write-Error "❌ ODBC Driver for SQL Server not installed."
-        #       exit 1
-        #     } else {
-        #       Write-Host "✅ Found ODBC driver: $($odbcDriver.Name)"
-        #     }
+name: 'Generate and Store Password'
+description: 'Generates a secure random password and stores it in AWS SSM Parameter Store'
+
+inputs:
+  parameter-name:
+    description: 'AWS SSM parameter path (e.g., /prod/db/password)'
+    required: true
+  aws-region:
+    description: 'AWS region (default: us-east-1)'
+    default: 'us-east-1'
+  password-length:
+    description: 'Password length (default: 16)'
+    default: '16'
+
+outputs:
+  parameter-path:
+    description: 'The SSM parameter path where password is stored'
+  password-valid:
+    description: 'Whether password meets complexity requirements'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate password
+      shell: pwsh
+      run: |
+        # Generate password with complexity requirements
+        $password = -join (
+          (65..90) +          # A-Z
+          (97..122) +         # a-z
+          (48..57) +          # 0-9
+          (33..47) |          # Special chars
+          Get-Random -Count ${{ inputs.password-length }} | 
+          ForEach-Object { [char]$_ }
+        )
+
+        # Verify complexity
+        $hasUpper = $password -cmatch '[A-Z]'
+        $hasLower = $password -match '[a-z]'
+        $hasNumber = $password -match '\d'
+        $hasSpecial = $password -match '[^\w]'
+        $isValid = $hasUpper -and $hasLower -and $hasNumber -and $hasSpecial
+
+        if (-not $isValid) {
+          echo "::error::Password generation failed complexity check!"
+          exit 1
+        }
+
+        echo "::add-mask::$password"
+        echo "generated-password=$password" >> $GITHUB_OUTPUT
+        echo "password-valid=true" >> $GITHUB_OUTPUT
+
+    - name: Store in Parameter Store
+      shell: pwsh
+      run: |
+        aws ssm put-parameter \
+          --name "${{ inputs.parameter-name }}" \
+          --value "${{ steps.generate-password.outputs.generated-password }}" \
+          --type "SecureString" \
+          --overwrite \
+          --region "${{ inputs.aws-region }}"
+        echo "parameter-path=${{ inputs.parameter-name }}" >> $GITHUB_OUTPUT
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+
+==================
+
+steps:
+  - name: Generate database password
+    id: generate-db-pass
+    uses: ./.github/actions/generate-password
+    with:
+      parameter-name: '/prod/mysql/master-password'
+      aws-region: 'us-west-2'
+      password-length: 24
+
+  - name: Verify storage
+    run: |
+      echo "Password stored at: ${{ steps.generate-db-pass.outputs.parameter-path }}"
+      echo "Complexity valid: ${{ steps.generate-db-pass.outputs.password-valid }}"
