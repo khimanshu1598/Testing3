@@ -47,47 +47,9 @@ runs:
 
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:3 char:5
-+   --name "***" \
-+     ~
-Missing expression after unary operator '--'.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:3 char:5
-+   --name "***" \
-+     ~~~~
-Unexpected token 'name' in expression or statement.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:4 char:5
-+   --value "" \
-+     ~
-Missing expression after unary operator '--'.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:4 char:5
-+   --value "" \
-+     ~~~~~
-Unexpected token 'value' in expression or statement.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:5 char:5
-+   --type "SecureString" \
-+     ~
-Missing expression after unary operator '--'.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:5 char:5
-+   --type "SecureString" \
-+     ~~~~
-Unexpected token 'type' in expression or statement.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:6 char:5
-+   --overwrite \
-+     ~
-Missing expression after unary operator '--'.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:6 char:5
-+   --overwrite \
-+     ~~~~~~~~~
-Unexpected token 'overwrite' in expression or statement.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:7 char:5
-+   --region "us-west-2"
-+     ~
-Missing expression after unary operator '--'.
-At C:\actions-runner\_work\_temp\9f4672b0-0b05-465b-a3c5-94dbe89597da.ps1:7 char:5
-+   --region "us-west-2"
-+     ~~~~~~
-Unexpected token 'region' in expression or statement.
-    + CategoryInfo          : ParserError: (:) [], ParseException
-    + FullyQualifiedErrorId : MissingExpressionAfterOperator
- 
-Error: Process completed with exit code 1.
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws.exe: error: argument --value: expected one argument
