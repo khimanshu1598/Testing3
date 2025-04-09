@@ -1,13 +1,10 @@
 name: 'Generate and Store Password'
-description: 'Generates a secure random password and stores it in AWS SSM Parameter Store'
+description: 'Generates a secure 12-character password (2 of each type) and stores it in AWS SSM'
 
 inputs:
   parameter-name:
     description: 'SSM Parameter Store path (e.g., /prod/db/password)'
     required: true
-  password-length:
-    description: 'Password length (default: 16)'
-    default: '16'
   aws-region:
     description: 'AWS region (default: us-east-1)'
     default: 'us-east-1'
@@ -15,8 +12,6 @@ inputs:
 outputs:
   parameter-path:
     description: 'The SSM path where password was stored'
-  password-valid:
-    description: 'Whether password met complexity rules'
 
 runs:
   using: "composite"
@@ -24,28 +19,19 @@ runs:
     - name: Generate password
       shell: pwsh
       run: |
-        # Generate password with 4-character types
-        $password = -join (
-          (65..90) +   # A-Z
-          (97..122) +  # a-z
-          (48..57) +   # 0-9
-          (33..47) |   # !"#$%&'()*+,-./
-          Get-Random -Count ${{ inputs.password-length }} | 
-          ForEach-Object { [char]$_ }
-        )
-
-        # Verify complexity (customize rules as needed)
-        $isValid = $password -match '[A-Z]' -and 
-                   $password -match '[a-z]' -and 
-                   $password -match '\d' -and 
-                   $password -match '[^\w]'
-
+        # Generate 2 of each character type (total 12 chars)
+        $upper = (65..90 | Get-Random -Count 2 | % { [char]$_ })
+        $lower = (97..122 | Get-Random -Count 2 | % { [char]$_ })
+        $numbers = (48..57 | Get-Random -Count 2 | % { [char]$_ })
+        $special = (33..47 | Get-Random -Count 2 | % { [char]$_ })
+        
+        # Combine and shuffle
+        $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
+        
         echo "::add-mask::$password"
         echo "generated-password=$password" >> $GITHUB_OUTPUT
-        echo "password-valid=$isValid" >> $GITHUB_OUTPUT
 
     - name: Store in Parameter Store
-      if: steps.generate-password.outputs.password-valid == 'true'
       shell: pwsh
       run: |
         aws ssm put-parameter \
@@ -55,24 +41,3 @@ runs:
           --overwrite \
           --region "${{ inputs.aws-region }}"
         echo "parameter-path=${{ inputs.parameter-name }}" >> $GITHUB_OUTPUT
-
-==============================
-
-steps:
-  - uses: aws-actions/configure-aws-credentials@v4  # Required for OIDC
-    with:
-      role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      aws-region: us-east-1
-
-  - name: Generate and store password
-    id: password-gen
-    uses: ./.github/actions/generate-password
-    with:
-      parameter-name: '/prod/db/master-password'
-      password-length: 24
-      aws-region: us-east-1
-
-  - name: Verify result
-    run: |
-      echo "Password stored at: ${{ steps.password-gen.outputs.parameter-path }}"
-      echo "Complexity valid: ${{ steps.password-gen.outputs.password-valid }}"
