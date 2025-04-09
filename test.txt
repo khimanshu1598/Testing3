@@ -12,35 +12,48 @@ inputs:
 outputs:
   parameter-path:
     description: 'The SSM path where password was stored'
+  generated-password:
+    description: 'The generated password'
+    value: ${{ steps.generate-password.outputs.generated-password }}
 
 runs:
   using: "composite"
   steps:
     - name: Generate password
+      id: generate-password
       shell: pwsh
       run: |
         # Generate 2 of each character type (total 12 chars)
-        $upper = (65..90 | Get-Random -Count 2 | % { [char]$_ })
-        $lower = (97..122 | Get-Random -Count 2 | % { [char]$_ })
-        $numbers = (48..57 | Get-Random -Count 2 | % { [char]$_ })
-        $special = (33..47 | Get-Random -Count 2 | % { [char]$_ })
-        
+        $upper = (65..90 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
+        $lower = (97..122 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
+        $numbers = (48..57 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
+        $special = (33..47 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
+
         # Combine and shuffle
         $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
-        
+
         echo "::add-mask::$password"
-        echo "generated-password=$password" >> $GITHUB_OUTPUT
+        echo "generated-password=$password" >> $env:GITHUB_OUTPUT
+
+        # Store it in a temporary file for next step
+        Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
 
     - name: Store in Parameter Store
       shell: pwsh
       run: |
-        aws ssm put-parameter \
-          --name "${{ inputs.parameter-name }}" \
-          --value "${{ steps.generate-password.outputs.generated-password }}" \
-          --type "SecureString" \
-          --overwrite \
-          --region "${{ inputs.aws-region }}"
-        echo "parameter-path=${{ inputs.parameter-name }}" >> $GITHUB_OUTPUT
+        $parameterName = "${{ inputs.parameter-name }}"
+        $region = "${{ inputs.aws-region }}"
+        $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
+
+        aws ssm put-parameter `
+          --name "$parameterName" `
+          --value "$password" `
+          --type "SecureString" `
+          --overwrite `
+          --region "$region"
+
+        echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
+
 
 
 =========
