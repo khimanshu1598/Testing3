@@ -1,26 +1,45 @@
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-Unknown options: "C:\Temp\EmployeeInvitation"), {, Get-ChildItem, "C:\Temp\EmployeeInvitation", }, else, {, Write-Output, "Folder, not, found";, exit, 1, }]', (Test-Path
-Command ID: 
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --command-id: expected one argument
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --command-id: expected one argument
-Folder Contents:
-Error: Process completed with exit code 1.
+- name: List directory contents via SSM
+  shell: pwsh
+  run: |
+    $command = 'if (Test-Path "C:\Temp\EmployeeInvitation") { Get-ChildItem "C:\Temp\EmployeeInvitation" } else { Write-Output "Folder not found"; exit 1 }'
+
+    # Escape for JSON and CLI
+    $escapedCommand = '"' + $command.Replace('"', '\"') + '"'
+    $parameters = "commands=[$escapedCommand]"
+
+    # Build the full AWS CLI command as a string
+    $fullCommand = @(
+      "aws ssm send-command",
+      "--document-name AWS-RunPowerShellScript",
+      "--instance-ids $env:AWS_INSTANCE_ID",
+      "--region us-west-2",
+      "--parameters $parameters",
+      "--comment 'List folder contents'",
+      "--query Command.CommandId",
+      "--output text"
+    ) -join " "
+
+    # Run the full command in a subprocess to prevent argument parsing issues
+    $commandId = & cmd.exe /c $fullCommand
+    Write-Host "Command ID: $commandId"
+
+    # Wait for it to complete
+    aws ssm wait command-executed `
+      --region us-west-2 `
+      --command-id $commandId `
+      --instance-id $env:AWS_INSTANCE_ID
+
+    # Get output
+    $output = aws ssm get-command-invocation `
+      --region us-west-2 `
+      --command-id $commandId `
+      --instance-id $env:AWS_INSTANCE_ID `
+      --query "StandardOutputContent" `
+      --output text
+
+    Write-Host "`n📂 Folder Contents:"
+    Write-Host "$output"
+
 
 
 
