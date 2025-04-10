@@ -1,5 +1,5 @@
 name: "Send PowerShell Script to EC2 via SSM"
-description: "Uploads a single PowerShell script to a Windows EC2 instance via SSM and saves it under C:\\Temp\\EmployeeInvitation"
+description: "Uploads a single PowerShell script to a Windows EC2 instance via SSM and stores it under C:\\Temp\\EmployeeInvitation"
 inputs:
   script_path:
     description: "Path to the PowerShell script"
@@ -27,24 +27,30 @@ runs:
         $encoded = "${{ steps.encode.outputs.scriptEncoded }}"
 
         $commands = @(
-          "if (!(Test-Path 'C:\Temp\EmployeeInvitation')) { New-Item -Path 'C:\Temp\EmployeeInvitation' -ItemType Directory | Out-Null } else { Get-ChildItem 'C:\Temp\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }",
-          "`$script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$encoded'))",
-          "Set-Content -Path 'C:\Temp\EmployeeInvitation\sql-actions.ps1' -Value `$script -Force",
+          "if (!(Test-Path 'C:\Temp\EmployeeInvitation')) { New-Item -ItemType Directory -Path 'C:\Temp\EmployeeInvitation' | Out-Null } else { Get-ChildItem -Path 'C:\Temp\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }",
+          "`$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$encoded'))",
+          "Set-Content -Path 'C:\Temp\EmployeeInvitation\sql-actions.ps1' -Value `$decoded -Force",
           "Write-Host '✅ sql-actions.ps1 transferred successfully'"
         )
 
-        $commandJson = $commands | ForEach-Object { "`"`$_`"" } | Out-String
-        $commandJson = $commandJson -replace '\r?\n', ','
+        $commandJson = $commands | ForEach-Object { "`"`$_`"" } -join ","
 
         $commandId = aws ssm send-command `
           --document-name "AWS-RunPowerShellScript" `
           --instance-ids "${{ inputs.instance_id }}" `
           --region "${{ inputs.region }}" `
-          --parameters @{ commands = @($commandJson) } `
+          --parameters "commands=[$commandJson]" `
+          --comment "Uploading sql-actions.ps1 to EC2" `
           --query "Command.CommandId" `
           --output text
 
-        echo "Command ID: $commandId"
+        Write-Host "Command ID: $commandId"
+
+        aws ssm wait command-executed `
+          --region "${{ inputs.region }}" `
+          --command-id $commandId `
+          --instance-id "${{ inputs.instance_id }}"
+
 
 
 
