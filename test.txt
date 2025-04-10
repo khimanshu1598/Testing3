@@ -1,27 +1,33 @@
 - name: List directory contents via SSM
   shell: pwsh
   run: |
-    $command = 'if (Test-Path "C:\Temp\EmployeeInvitation") { Get-ChildItem "C:\Temp\EmployeeInvitation" } else { Write-Host "❌ Folder not found"; exit 1 }'
+    $psCommand = 'if (Test-Path "C:\Temp\EmployeeInvitation") { Get-ChildItem "C:\Temp\EmployeeInvitation" } else { Write-Output "Folder not found"; exit 1 }'
 
-    # Escape for AWS CLI: wrap in double quotes, escape inner double quotes
-    $escaped = '"' + $command.Replace('"', '\"') + '"'
+    # Escape for JSON and CLI
+    $escapedCommand = '"' + $psCommand.Replace('"', '\"') + '"'
 
+    # Build CLI parameter string
+    $parameterString = "commands=[$escapedCommand]"
+
+    # Send the command
     $commandId = aws ssm send-command `
       --document-name "AWS-RunPowerShellScript" `
       --instance-ids "${{ env.AWS_INSTANCE_ID }}" `
       --region "${{ env.AWS_REGION }}" `
-      --parameters "commands=[$escaped]" `
-      --comment "List EmployeeInvitation folder contents" `
+      --parameters $parameterString `
+      --comment "List folder contents" `
       --query "Command.CommandId" `
       --output text
 
     Write-Host "Command ID: $commandId"
 
+    # Wait for the command to complete
     aws ssm wait command-executed `
       --region "${{ env.AWS_REGION }}" `
       --command-id $commandId `
       --instance-id "${{ env.AWS_INSTANCE_ID }}"
 
+    # Get and print output
     $output = aws ssm get-command-invocation `
       --region "${{ env.AWS_REGION }}" `
       --command-id $commandId `
@@ -31,6 +37,7 @@
 
     Write-Host "`n📂 Folder Contents:"
     Write-Host "$output"
+
 
 
 
