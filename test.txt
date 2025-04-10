@@ -162,12 +162,10 @@ jobs:
 
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
-Test-Path : Cannot bind argument to parameter 'Path' because it is an empty string.
-At C:\actions-runner\_work\_temp\5e0145a8-790a-4941-b716-77aceaa72b23.ps1:2 char:21
-+ if (-not (Test-Path "")) {
-+                     ~~
-    + CategoryInfo          : InvalidData: (:) [Test-Path], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,Microsoft.PowerShell.Commands.Test 
-   PathCommand
- 
+Error parsing parameter '--parameters': Expected: ',', received: ''' for input:
+ commands=['if (-not (Test-Path ''C:\Temp\EmployeeInvitation'')) { 
+                                ^
+  New-Item -ItemType Directory -Path ''C:\Temp\EmployeeInvitation'' -Force | Out-Null 
+}
+Remove-Item C:\Temp\EmployeeInvitation\sql-actions.ps1.tmp -ErrorAction SilentlyContinue']
 Error: Process completed with exit code 1.
