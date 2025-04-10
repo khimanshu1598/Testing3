@@ -1,68 +1,29 @@
-name: 'Generate and Store Password'
-description: 'Generates a secure 12-character password (2 of each type) and stores it in AWS SSM'
+- name: Send PowerShell script to EC2 via SSM
+  id: run-ssm-script
+  shell: pwsh
+  run: |
+    $scriptContent = Get-Content "od-gha-files/create-sql-user.ps1" -Raw
 
-inputs:
-  parameter-name:
-    description: 'SSM Parameter Store path (e.g., /prod/db/password)'
-    required: true
-  aws-region:
-    description: 'AWS region (default: us-east-1)'
-    default: 'us-east-1'
+    # Optional: Inject variable values if needed (or handle in the script itself)
+    $paramBlock = @"
+`$serverInstance = '$env:DB_SERVER_NAME'
+`$databaseName = '$env:DB_NAME'
+`$sqlUserName = '$env:SQL_USER_NAME'
+`$sqlPassword = '${{ steps.password-gen.outputs.generated-password }}'
+`$adUserSsmPassword = '/secure/dbpassword'
+`$sqlActivity = 'create-user'
+"@
 
-outputs:
-  parameter-path:
-    description: 'The SSM path where password was stored'
-  generated-password:
-    description: 'The generated password'
-    value: ${{ steps.generate-password.outputs.generated-password }}
+    $finalScript = "$paramBlock`n$scriptContent"
 
-runs:
-  using: "composite"
-  steps:
-    - name: Generate password
-      id: generate-password
-      shell: pwsh
-      run: |
-        # Generate 2 of each character type (total 12 chars)
-        $upper = (65..90 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
-        $lower = (97..122 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
-        $numbers = (48..57 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
-        $special = (33..47 | Get-Random -Count 2 | ForEach-Object { [char]$_ })
+    # Send the command via SSM
+    $commandId = aws ssm send-command `
+      --document-name "AWS-RunPowerShellScript" `
+      --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
+      --parameters commands=@("$finalScript") `
+      --comment "Run script via SSM" `
+      --region "$env:AWS_REGION" `
+      --query "Command.CommandId" `
+      --output text
 
-        # Combine and shuffle
-        $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
-
-        echo "::add-mask::$password"
-        echo "generated-password=$password" >> $env:GITHUB_OUTPUT
-
-        # Store it in a temporary file for next step
-        Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
-
-    - name: Store in Parameter Store
-      shell: pwsh
-      run: |
-        $parameterName = "${{ inputs.parameter-name }}"
-        $region = "${{ inputs.aws-region }}"
-        $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
-
-        aws ssm put-parameter `
-          --name "$parameterName" `
-          --value "$password" `
-          --type "SecureString" `
-          --overwrite `
-          --region "$region"
-
-        echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
-
-
-
-=========
-
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --value: expected one argument
+    echo "command-id=$commandId" >> $env:GITHUB_OUTPUT
