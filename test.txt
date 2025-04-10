@@ -1,35 +1,35 @@
-- name: Verify sql-actions.ps1 exists on EC2
+- name: Verify files on target server
   shell: pwsh
   run: |
-    # Escape everything: PowerShell inside CLI inside YAML inside GitHub Action 😅
-    $verifyCommand = '"if (Test-Path \"C:\\Temp\\EmployeeInvitation\\sql-actions.ps1\") { Write-Host \"✅ File exists\" } else { Write-Host \"❌ File missing\"; exit 1 }"'
-
-    $commandId = aws ssm send-command `
+    # Send command to list files
+    $commandOutput = aws ssm send-command `
+      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
       --document-name "AWS-RunPowerShellScript" `
-      --instance-ids "i-0abc123def456ghij" `
-      --region "us-west-2" `
-      --parameters "commands=[$verifyCommand]" `
-      --comment "Verify sql-actions.ps1 file exists" `
-      --query "Command.CommandId" `
-      --output text
-
-    Write-Host "Verify Command ID: $commandId"
-
-    aws ssm wait command-executed `
-      --region "us-west-2" `
+      --parameters '{"commands":["Get-ChildItem -Path \"C:\\Temp\\EmployeeInvitation\" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json"]}' `
+      --output json
+    
+    # Get command ID
+    $commandId = ($commandOutput | ConvertFrom-Json).Command.CommandId
+    
+    # Wait for command to complete
+    Start-Sleep -Seconds 5
+    
+    # Get command results
+    $result = aws ssm get-command-invocation `
       --command-id $commandId `
-      --instance-id "i-0abc123def456ghij"
-
-    # Optional: get output
-    $output = aws ssm get-command-invocation `
-      --region "us-west-2" `
-      --command-id $commandId `
-      --instance-id "i-0abc123def456ghij" `
-      --query "StandardOutputContent" `
-      --output text
-
-    Write-Host "`n📄 Script Output:"
-    Write-Host "$output"
+      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
+      --output json | ConvertFrom-Json
+    
+    # Output the file list
+    Write-Host "Files in C:\Temp\EmployeeInvitation:"
+    if ($result.Status -eq "Success") {
+      $files = $result.StandardOutputContent | ConvertFrom-Json
+      $files | Format-Table -AutoSize | Out-Host
+    } else {
+      Write-Host "Error checking files:"
+      Write-Host $result.StandardErrorContent
+      exit 1
+    }
 
 
 
