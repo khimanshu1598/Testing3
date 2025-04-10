@@ -81,15 +81,13 @@ jobs:
 
 ----------------
 
-Error parsing parameter '--parameters': Expected: '=', received: 'EOF' for input:
- System.Collections.Hashtable
-                            ^
-
+Error parsing parameter '--parameters': Expected: ',', received: ''' for input:
+ commands=[if (Test-Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1') { Write-Host 'File exists' } else { Write-Host 'File missing'; exit 1 }]
+                        ^
+Verify Command ID: 
 usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
 To see help text, you can run:
-
   aws help
   aws <command> help
   aws <command> <subcommand> help
-
 aws.exe: error: argument --command-id: expected one argument
