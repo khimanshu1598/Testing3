@@ -1,18 +1,83 @@
-- name: Send script to EC2 and save in C:\Temp\EmployeeInvitation
-  shell: pwsh
-  run: |
-    $encoded = "${{ steps.encode.outputs.encoded }}"
+name: 'Send file to EC2 via SSM'
+description: 'Send a local file to an EC2 instance via AWS SSM'
+inputs:
+  file-path:
+    description: 'Path to the local file to send'
+    required: true
+  instance-id:
+    description: 'Target EC2 instance ID'
+    required: true
+  destination-path:
+    description: 'Destination path on the target server'
+    required: true
+    default: 'C:\Temp'
+runs:
+  using: 'composite'
+  steps:
+    - name: Read file content
+      id: read_file
+      shell: pwsh
+      run: |
+        $content = Get-Content -Path "${{ inputs.file-path }}" -Raw
+        $content = $content -replace "`r`n", "`n" -replace "`n", "`r`n"
+        $escapedContent = $content.Replace("'", "''").Replace("`"", "```"")
+        echo "::set-output name=content::$escapedContent"
+        
+    - name: Send file via SSM
+      shell: pwsh
+      run: |
+        $command = @"
+        `$content = @'
+        ${{ steps.read_file.outputs.content }}
+        '@
+        Set-Content -Path "${{ inputs.destination-path }}\$(Split-Path -Leaf '${{ inputs.file-path }}')" -Value `$content -Force
+        "@
+        
+        aws ssm send-command `
+          --instance-ids "${{ inputs.instance-id }}" `
+          --document-name "AWS-RunPowerShellScript" `
+          --parameters "commands=[$command]" `
+          --output text
 
-    # Escape the inline PowerShell for SSM CLI
-    $ssmCommand = "powershell -Command `"\$base64='${encoded}';\$decoded=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$base64));if (!(Test-Path -Path 'C:\\Temp\\EmployeeInvitation')) { New-Item -ItemType Directory -Path 'C:\\Temp\\EmployeeInvitation' | Out-Null } else { Get-ChildItem -Path 'C:\\Temp\\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }; Set-Content -Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1' -Value \$decoded -Force`""
 
-    $commandId = aws ssm send-command `
-      --document-name "AWS-RunPowerShellScript" `
-      --instance-ids "${{ inputs.instance_id }}" `
-      --region "${{ inputs.region }}" `
-      --parameters "commands=[$ssmCommand]" `
-      --comment "Create/Clean EmployeeInvitation dir and send script" `
-      --query "Command.CommandId" `
-      --output text
+-----------------
 
-    echo "Command ID: $commandId"
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      # Your existing steps...
+      
+      - name: Send sql-actions.ps1 to target server
+        uses: ./.github/actions/send-file-via-ssm  # Assuming you save the action here
+        with:
+          file-path: './od-gha-files/sql-actions.ps1'
+          instance-id: 'your-ec2-instance-id'
+          destination-path: 'C:\Temp'
+          
+      - name: Verify file on target server
+        shell: pwsh
+        run: |
+          $result = aws ssm send-command `
+            --instance-ids "your-ec2-instance-id" `
+            --document-name "AWS-RunPowerShellScript" `
+            --parameters "commands=[Test-Path 'C:\Temp\sql-actions.ps1'; Get-Item 'C:\Temp\sql-actions.ps1' | Select-Object -Property FullName,Length,LastWriteTime]" `
+            --output json
+          
+          $commandResult = $result | ConvertFrom-Json
+          $commandId = $commandResult.Command.CommandId
+          
+          # Wait a few seconds for command to complete
+          Start-Sleep -Seconds 5
+          
+          $output = aws ssm get-command-invocation `
+            --command-id $commandId `
+            --instance-id "your-ec2-instance-id" `
+            --output json | ConvertFrom-Json
+          
+          Write-Host "File verification output:"
+          Write-Host $output.StandardOutputContent
+          
+          if ($output.Status -ne 'Success') {
+            throw "File verification failed"
+          }
