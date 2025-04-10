@@ -1,16 +1,34 @@
 - name: List directory contents via SSM
   shell: pwsh
   run: |
-    # Create properly escaped parameters
-    $params = @{
-      commands = @("Get-ChildItem 'C:\Temp\EmployeeInvitation'")
-    } | ConvertTo-Json -Compress
-    
-    # Execute the command
-    aws ssm send-command `
-      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
+    $command = '"Get-ChildItem C:\\Temp\\EmployeeInvitation"'
+
+    $commandId = aws ssm send-command `
       --document-name "AWS-RunPowerShellScript" `
-      --parameters "$params"
+      --instance-ids "${{ env.AWS_INSTANCE_ID }}" `
+      --region "${{ env.AWS_REGION }}" `
+      --parameters "commands=[$command]" `
+      --query "Command.CommandId" `
+      --output text
+
+    Write-Host "Command ID: $commandId"
+
+    aws ssm wait command-executed `
+      --region "${{ env.AWS_REGION }}" `
+      --command-id $commandId `
+      --instance-id "${{ env.AWS_INSTANCE_ID }}"
+
+    # Print the output
+    $output = aws ssm get-command-invocation `
+      --region "${{ env.AWS_REGION }}" `
+      --command-id $commandId `
+      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
+      --query "StandardOutputContent" `
+      --output text
+
+    Write-Host "`n📂 Folder Contents:"
+    Write-Host "$output"
+
 
 
 
