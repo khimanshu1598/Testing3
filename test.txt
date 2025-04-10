@@ -1,45 +1,21 @@
-- name: List directory contents via SSM
-  shell: pwsh
-  run: |
-    $command = 'if (Test-Path "C:\Temp\EmployeeInvitation") { Get-ChildItem "C:\Temp\EmployeeInvitation" } else { Write-Output "Folder not found"; exit 1 }'
-
-    # Escape inner quotes for JSON format
-    $escapedCommand = '"' + $command.Replace('"', '\"') + '"'
-
-    # Final --parameters value
-    $parameters = "commands=[$escapedCommand]"
-
-    # Full command (WITHOUT the comment flag to avoid breaking CLI parsing)
-    $fullCommand = @(
-      "aws ssm send-command",
-      "--document-name AWS-RunPowerShellScript",
-      "--instance-ids $env:AWS_INSTANCE_ID",
-      "--region us-west-2",
-      "--parameters $parameters",
-      "--query Command.CommandId",
-      "--output text"
-    ) -join " "
-
-    # Run using cmd to avoid Powershell parsing issues
-    $commandId = & cmd.exe /c $fullCommand
-    Write-Host "Command ID: $commandId"
-
-    # Wait for the command to finish
-    aws ssm wait command-executed `
-      --region us-west-2 `
-      --command-id $commandId `
-      --instance-id $env:AWS_INSTANCE_ID
-
-    # Fetch and print output
-    $output = aws ssm get-command-invocation `
-      --region us-west-2 `
-      --command-id $commandId `
-      --instance-id $env:AWS_INSTANCE_ID `
-      --query "StandardOutputContent" `
-      --output text
-
-    Write-Host "`n📂 Folder Contents:"
-    Write-Host "$output"
+Error parsing parameter '--parameters': Expected: ',', received: '"' for input:
+ commands=[if (Test-Path "C:\Temp\EmployeeInvitation") { Get-ChildItem "C:\Temp\EmployeeInvitation" } else { Write-Output "Folder not found"; exit 1 }]
+                        ^
+Command ID: 
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws.exe: error: argument --command-id: expected one argument
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws.exe: error: argument --command-id: expected one argument
+Folder Contents:
+Error: Process completed with exit code 1.
 
 
 
