@@ -14,29 +14,30 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Read file content
-      id: read_file
+    - name: Read and encode file content
+      id: encode_file
       shell: pwsh
       run: |
-        $content = Get-Content -Path "${{ inputs.file-path }}" -Raw
-        $content = $content -replace "`r`n", "`n" -replace "`n", "`r`n"
-        $escapedContent = $content.Replace("'", "''").Replace("`"", "```"")
-        echo "::set-output name=content::$escapedContent"
+        $content = Get-Content -Path "${{ inputs.file-path }}" -Raw -Encoding UTF8
+        $base64Content = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content))
+        echo "::set-output name=content::$base64Content"
         
     - name: Send file via SSM
       shell: pwsh
       run: |
         $command = @"
-        `$content = @'
-        ${{ steps.read_file.outputs.content }}
-        '@
-        Set-Content -Path "${{ inputs.destination-path }}\$(Split-Path -Leaf '${{ inputs.file-path }}')" -Value `$content -Force
+        `$bytes = [System.Convert]::FromBase64String('${{ steps.encode_file.outputs.content }}')
+        `$content = [System.Text.Encoding]::UTF8.GetString(`$bytes)
+        if (-not (Test-Path '${{ inputs.destination-path }}')) {
+            New-Item -ItemType Directory -Path '${{ inputs.destination-path }}' -Force
+        }
+        Set-Content -Path "${{ inputs.destination-path }}\$(Split-Path -Leaf '${{ inputs.file-path }}')" -Value `$content -Encoding UTF8 -Force
         "@
         
         aws ssm send-command `
           --instance-ids "${{ inputs.instance-id }}" `
           --document-name "AWS-RunPowerShellScript" `
-          --parameters "commands=[$command]" `
+          --parameters "{\"commands\":[\"$($command -replace '"', '\"')]}" `
           --output text
 
 
