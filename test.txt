@@ -1,47 +1,53 @@
-- name: Send PowerShell script to EC2 via SSM
-  id: run-ssm-script
-  shell: pwsh
-  run: |
-    # Fetch SQL password from Parameter Store
-    $parameter_store_name = "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
-    $region = "${{ env.AWS_REGION }}"
-    $sqlPassword = aws ssm get-parameter `
-      --name "$parameter_store_name" `
-      --with-decryption `
-      --region "$region" `
-      --query "Parameter.Value" `
-      --output text
+name: "Send PS1 to EC2 via SSM"
+description: "Sends a PowerShell script to EC2 and saves it in C:\\Temp\\EmployeeInvitation via AWS SSM"
+inputs:
+  script_path:
+    description: "Relative path to the PowerShell script"
+    required: true
+  instance_id:
+    description: "Target EC2 Instance ID"
+    required: true
+  region:
+    description: "AWS Region"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Encode PowerShell script
+      id: encode
+      shell: pwsh
+      run: |
+        $content = Get-Content "${{ inputs.script_path }}" -Raw
+        $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content))
+        echo "encoded=$base64" >> $env:GITHUB_OUTPUT
 
-    # Prepare parameters for the script
-    $scriptArgs = @(
-      "-serverInstance", "${{ env.DB_SERVER_NAME }}",
-      "-databaseName", "${{ env.DB_NAME }}",
-      "-sqlUserName", "${{ env.SQL_USER_NAME }}",
-      "-sqlPassword", "$sqlPassword",
-      "-adUserSsmPassword", "/secure/dbpassword",
-      "-sqlActivity", "create-user"
-    )
+    - name: Send script to EC2 and save in C:\Temp\EmployeeInvitation
+      shell: pwsh
+      run: |
+        $encoded = "${{ steps.encode.outputs.encoded }}"
 
-    # Load the script content
-    $scriptPath = "od-gha-files/sql-actions.ps1"
-    $scriptContent = Get-Content $scriptPath -Raw
-    $fullScript = $scriptContent + "`n" + '$args = @(' + ($scriptArgs -join ', ') + ')'
+        $commands = @"
+\$base64 = '${encoded}'
+\$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$base64))
 
-    # Encode the final script
-    $encodedScript = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($scriptContent))
+# Ensure directory exists and is clean
+\$targetDir = 'C:\Temp\EmployeeInvitation'
+if (!(Test-Path -Path \$targetDir)) {
+  New-Item -ItemType Directory -Path \$targetDir | Out-Null
+} else {
+  Get-ChildItem -Path \$targetDir -Recurse -Force | Remove-Item -Force -Recurse
+}
 
-    # Prepare final command to decode and run script with arguments
-    $psArgs = $scriptArgs -join ' '
-    $finalCommand = "powershell -NoProfile -Command `"& { [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('$encodedScript')) } $psArgs`""
+Set-Content -Path "\$targetDir\sql-actions.ps1" -Value \$decoded -Force
+"@
 
-    # Send the command to EC2 via SSM
-    $commandId = aws ssm send-command `
-      --document-name "AWS-RunPowerShellScript" `
-      --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-      --parameters commands=["$finalCommand"] `
-      --comment "Run sql-actions.ps1 with parameters via SSM" `
-      --region "$env:AWS_REGION" `
-      --query "Command.CommandId" `
-      --output text
+        $commandId = aws ssm send-command `
+          --document-name "AWS-RunPowerShellScript" `
+          --instance-ids "${{ inputs.instance_id }}" `
+          --region "${{ inputs.region }}" `
+          --parameters commands=["$commands"] `
+          --comment "Create/Clean EmployeeInvitation dir and send script" `
+          --query "Command.CommandId" `
+          --output text
 
-    echo "command-id=$commandId" >> $env:GITHUB_OUTPUT
+        echo "Command ID: $commandId"
