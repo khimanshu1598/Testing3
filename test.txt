@@ -1,10 +1,16 @@
-- name: List files via SSM (Windows-compatible)
-  shell: pwsh  # PowerShell Core (works on all runners)
+- name: List directory contents via SSM
+  shell: pwsh
   run: |
+    # Create properly escaped parameters
+    $params = @{
+      commands = @("Get-ChildItem 'C:\Temp\EmployeeInvitation'")
+    } | ConvertTo-Json -Compress
+    
+    # Execute the command
     aws ssm send-command `
-      --instance-id "$env:AWS_INSTANCE_ID" `
+      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
       --document-name "AWS-RunPowerShellScript" `
-      --parameters '{\"commands\":[\"dir C:\\\\Temp\\\\EmployeeInvitation\"]}'
+      --parameters "$params"
 
 
 
