@@ -169,3 +169,49 @@ Error parsing parameter '--parameters': Expected: ',', received: ''' for input:
 }
 Remove-Item C:\Temp\EmployeeInvitation\sql-actions.ps1.tmp -ErrorAction SilentlyContinue']
 Error: Process completed with exit code 1.
+
+----------------------
+
+#     echo "Transferring files to target EC2 instance..."
+  #     remote_script_file="C:/Temp/dacpac-utility.ps1"
+  #     remote_uat_file="C:/Temp/uat.ps1"
+
+  #     command_id=$(aws ssm send-command \
+  #       --region "${{ inputs.aws_region }}" \
+  #       --instance-ids "$INSTANCE_ID" \
+  #       --document-name "AWS-RunPowerShellScript" \
+  #       --parameters commands="[
+  #         \"Write-Host 'Creating Temp Directory...'\",
+  #         \"New-Item -Path C:/Temp -ItemType Directory -Force\",
+  #         \"[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String('$(base64 -w 0 "${{ inputs.script_path }}")')) | Out-File '$remote_script_file'\",
+  #         \"[Text.Encoding]::Utf8.GetString([Convert]::FromBase64String('$(base64 -w 0 "${{ inputs.config_path }}")')) | Out-File '$remote_uat_file'\",
+  #         \"Write-Host 'Scripts transferred successfully'\"
+  #       ]" \
+  #       --timeout-seconds 300 \
+  #       --max-concurrency "50" \
+  #       --max-errors "0" \
+  #       --query "Command.CommandId" \
+  #       --output text)
+
+  #     echo "TRANSFER_FILES_COMMAND_ID=$command_id" >> $GITHUB_ENV
+  #     aws ssm wait command-executed --region "${{ inputs.aws_region }}" --command-id "$command_id" --instance-id "$INSTANCE_ID"
+
+  # - name: "Verify File Transfer on Target Instance"
+  #   shell: bash
+  #   run: |
+  #     command_id=$(aws ssm send-command \
+  #       --region "${{ inputs.aws_region }}" \
+  #       --instance-ids "$INSTANCE_ID" \
+  #       --document-name "AWS-RunPowerShellScript" \
+  #       --parameters commands="[
+  #         \"if (Test-Path 'C:/Temp/dacpac-utility.ps1') { Write-Host 'dacpac-utility.ps1 exists' } else { Write-Host 'ERROR: dacpac-utility.ps1 missing!'; exit 1 }\",
+  #         \"if (Test-Path 'C:/Temp/uat.ps1') { Write-Host 'uat.ps1 exists' } else { Write-Host 'ERROR: uat.ps1 missing!'; exit 1 }\"
+  #       ]" \
+  #       --timeout-seconds 300 \
+  #       --max-concurrency "50" \
+  #       --max-errors "0" \
+  #       --query "Command.CommandId" \
+  #       --output text)
+
+  #     echo "VERIFY_FILE_TRANSFER_COMMAND_ID=$command_id" >> $GITHUB_ENV
+  #     aws ssm wait command-executed --region "${{ inputs.aws_region }}" --command-id "$command_id" --instance-id "$INSTANCE_ID"
