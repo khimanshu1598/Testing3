@@ -44,7 +44,8 @@ To see help text, you can run:
   aws help
   aws <command> help
   aws <command> <subcommand> help
-Unknown options: "C:\\Temp\\EmployeeInvitation"), {, Get-ChildItem, "C:\\Temp\\EmployeeInvitation", }, else, {, Write-Host, "Folder, not, found";, exit, 1, }], (Test-Path
+Unknown options: "C:\Temp\EmployeeInvitation"), {, Get-ChildItem, "C:\Temp\EmployeeInvitation", }, else, {, Write-Host, "�\x9d�, Folder, not, found";, exit, 1, }], (Test-Path
+Command ID: 
 usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
 To see help text, you can run:
   aws help
@@ -57,7 +58,7 @@ To see help text, you can run:
   aws <command> help
   aws <command> <subcommand> help
 aws.exe: error: argument --command-id: expected one argument
-Folder Contents:
+ Folder Contents:
 
 
 
