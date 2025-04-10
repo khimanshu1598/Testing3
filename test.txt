@@ -30,9 +30,27 @@
 
 
 
-Error parsing parameter '--parameters': Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
-JSON received: {commands:[Get-ChildItem \u0027C:\\Temp\\EmployeeInvitation\u0027]}
-Error: Process completed with exit code 1.
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+Unknown options: "C:\\Temp\\EmployeeInvitation"), {, Get-ChildItem, "C:\\Temp\\EmployeeInvitation", }, else, {, Write-Host, "Folder, not, found";, exit, 1, }], (Test-Path
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws.exe: error: argument --command-id: expected one argument
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws.exe: error: argument --command-id: expected one argument
+Folder Contents:
 
 
 
