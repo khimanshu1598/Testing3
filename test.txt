@@ -81,3 +81,20 @@ jobs:
           if ($output.Status -ne 'Success') {
             throw "File verification failed"
           }
+
+----------------
+
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+
+Error parsing parameter '--parameters': Expected: ',', received: ''' for input:
+ commands=[$content = @'
+
+                      ^
+param (
+
+'@
+
+Set-Content -Path C:\Temp\EmployeeInvitation\sql-actions.ps1 -Value $content -Force]
+Error: Process completed with exit code 1.
+
