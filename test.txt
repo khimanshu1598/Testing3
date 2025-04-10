@@ -1,53 +1,16 @@
-name: "Send PS1 to EC2 via SSM"
-description: "Sends a PowerShell script to EC2 and saves it in C:\\Temp\\EmployeeInvitation via AWS SSM"
-inputs:
-  script_path:
-    description: "Relative path to the PowerShell script"
-    required: true
-  instance_id:
-    description: "Target EC2 Instance ID"
-    required: true
-  region:
-    description: "AWS Region"
-    required: true
-runs:
-  using: "composite"
-  steps:
-    - name: Encode PowerShell script
-      id: encode
-      shell: pwsh
-      run: |
-        $content = Get-Content "${{ inputs.script_path }}" -Raw
-        $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content))
-        echo "encoded=$base64" >> $env:GITHUB_OUTPUT
+- name: Send sql-actions.ps1 to EC2
+        uses: ./.github/actions/send-ps1-to-ec2
+        with:
+          script_path: "od-gha-files/sql-actions.ps1"
+          instance_id: "i-0abc123def456ghij"
+          region: "us-west-2"
 
-    - name: Send script to EC2 and save in C:\Temp\EmployeeInvitation
-      shell: pwsh
-      run: |
-        $encoded = "${{ steps.encode.outputs.encoded }}"
-
-        $commands = @"
-\$base64 = '${encoded}'
-\$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$base64))
-
-# Ensure directory exists and is clean
-\$targetDir = 'C:\Temp\EmployeeInvitation'
-if (!(Test-Path -Path \$targetDir)) {
-  New-Item -ItemType Directory -Path \$targetDir | Out-Null
-} else {
-  Get-ChildItem -Path \$targetDir -Recurse -Force | Remove-Item -Force -Recurse
-}
-
-Set-Content -Path "\$targetDir\sql-actions.ps1" -Value \$decoded -Force
-"@
-
-        $commandId = aws ssm send-command `
-          --document-name "AWS-RunPowerShellScript" `
-          --instance-ids "${{ inputs.instance_id }}" `
-          --region "${{ inputs.region }}" `
-          --parameters commands=["$commands"] `
-          --comment "Create/Clean EmployeeInvitation dir and send script" `
-          --query "Command.CommandId" `
-          --output text
-
-        echo "Command ID: $commandId"
+      - name: Check if script exists in EmployeeInvitation folder
+        shell: pwsh
+        run: |
+          aws ssm send-command `
+            --document-name "AWS-RunPowerShellScript" `
+            --instance-ids "i-0abc123def456ghij" `
+            --region "us-west-2" `
+            --parameters commands=["if (Test-Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1') { Write-Output '✅ File exists in EmployeeInvitation' } else { Write-Output '❌ File NOT found in EmployeeInvitation'; exit 1 }"] `
+            --comment "Check for uploaded script in EmployeeInvitation"
