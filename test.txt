@@ -1,162 +1,36 @@
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-Unknown options: System;
-using, System.Runtime.InteropServices;
-public, class, Win32, {
-, [DllImport(advapi32.dll,, SetLastError, =, true,, CharSet, =, CharSet.Unicode)]
-, public, static, extern, bool, LogonUser(
-, String, username,
-, String, domain,
-, IntPtr, password,
-, int, logonType,
-, int, logonProvider,
-, ref, IntPtr, token);
-, [DllImport(kernel32.dll)]
-, public, static, extern, bool, CloseHandle(IntPtr, handle);
-}
-@
-# # Function to generate a random strong password
-# function Generate-RandomPassword {
-#     $length = 16
-#     $characters = abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_-+=<>?
-#     $random = New-Object System.Random
-#     $password = -join ((1..$length) | ForEach-Object { $characters[$random.Next(0, $characters.Length)] })
-#     return $password
-# }
-# # Generate a random password for the SQL user
-# $sqlPassword = Generate-RandomPassword
-# Write-Host SQL-Password:, $sqlPassword
-# Create credential object
-$username = XOAWSUAT\svc_octopustentacle       # Change Domain username
-$ssmPassword = Get-SSMParameter -Name $adUserSsmPassword -WithDecryption $True    # Change the SSM Parameter name
-$password = ConvertTo-SecureString $ssmPassword.Value -AsPlainText -Force
-$credential = New-Object System.Management.Automation.PSCredential($username, $password)
-# Split domain and username
-$domainName = $credential.UserName.Split('\')[0]
-$userName = $credential.UserName.Split('\')[1]
-# Constants for LogonUser
-$LOGON32_LOGON_NETWORK = 3
-$LOGON32_PROVIDER_DEFAULT = 0
-$tokenHandle = [IntPtr]::Zero
-$passwordPtr = [IntPtr]::Zero
-try {
-    # Convert SecureString to IntPtr
-    $passwordPtr = [System.Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($credential.Password)
-    
-    # Attempt to get user token
-    $result = [Win32]::LogonUser(
-        $userName,
-        $domainName,
-        $passwordPtr,
-        $LOGON32_LOGON_NETWORK,
-        $LOGON32_PROVIDER_DEFAULT,
-        [ref]$tokenHandle)
-    if ($result) {
-        # Impersonate the user
-        $identityContext = [System.Security.Principal.WindowsIdentity]::Impersonate($tokenHandle)
-        # SQL Server connection details
-        # $serverInstance = ***
-        # $database = ***
-        $connectionString = Server=$serverInstance;Database=$database;Integrated, Security=True;Encrypt=False;TrustServerCertificate=True;
-        $connection = New-Object System.Data.SqlClient.SqlConnection
-        $connection.ConnectionString = $connectionString
-        try {
-            # Open connection to SQL Server
-            $connection.Open()
-            # Only generate SQLScript if 'create-user' is passed in the activity parameter
-            if ($sqlActivity -eq create-user) {
-        # SQL Query to create login, user, and assign db_owner role
-        $sqlScript = @
-, --, Create, a, login, at, the, SQL, Server, level, (with, SQL, Server, Authentication)
-, CREATE, LOGIN, $sqlUserName, WITH, PASSWORD, =, '$sqlPassword';
-, --, Use, the, database
-, USE, $databaseName;
-, --, Create, a, user, in, the, database, that, maps, to, the, login, created
-, CREATE, USER, $sqlUserName, FOR, LOGIN, $sqlUserName;
-, EXEC, sp_addrolemember, N'db_datareader',, '$sqlUserName';
-, EXEC, sp_addrolemember, N'db_owner',, '$sqlUserName';
-, EXEC, sp_addrolemember, N'db_accessadmin',, '$sqlUserName';
-, EXEC, sp_addrolemember, N'db_ddladmin',, '$sqlUserName';
-, EXEC, sp_addsrvrolemember, N'$sqlUserName',, N'sysadmin';
-@
-        
-        } elseif ($sqlActivity -eq validate-delete-user) {
-        $sqlScript = @
-, --, Use, the, database
-, USE, $databaseName;
-, --, Check, if, UserA, exists, in, the, database
-, IF, EXISTS, (SELECT, 1, FROM, sys.database_principals, WHERE, name, =, '$sqlUserName', AND, type, IN, ('S',, 'U'))
-, BEGIN
-, --, Drop, the, user, if, it, exists
-, PRINT, '$sqlUserName, found., Dropping, user, and, login...';
-, 
-, --, Drop, the, user, in, the, database
-, DROP, USER, $sqlUserName;
-, 
-, --, Drop, the, login, associated, with, the, user
-, DROP, LOGIN, $sqlUserName;
-, 
-, PRINT, '$sqlUserName, and, login, have, been, dropped, successfully.';
-, END
-, ELSE
-, BEGIN
-, PRINT, '$sqlUserName, does, not, exist, in, the, database.';
-, END
-@
-        } else {    
-            $sqlScript = @
-, --, Use, the, database
-, USE, $databaseName;
-, --, Delete, a, user, in, the, database, that, maps, to, the, login, created
-, DROP, USER, $sqlUserName;
-, DROP, LOGIN, $sqlUserName;
-@
-        }
-            
-            # Execute the SQL script
-            $command = $connection.CreateCommand()
-            $command.CommandText = $sqlScript
-            $command.ExecuteNonQuery()
-            Write-Host SQL, script, executed, successfully.
-        } catch {
-            Write-Error Error, executing, SQL, script:, $_
-        } finally {
-            $connection.Close()
-            $identityContext.Undo()
-        }
-    }
-    else {
-        throw [System.ComponentModel.Win32Exception][System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-    }
-}
-finally {
-    # Cleanup
-    if ($passwordPtr -ne [IntPtr]::Zero) {
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($passwordPtr)
-    }
-    if ($tokenHandle -ne [IntPtr]::Zero) {
-        [Win32]::CloseHandle($tokenHandle)
-    }
-}, --comment, Run script via SSM, --region, us-west-2, --query, Command.CommandId, --output, text, $serverInstance = ***
-$databaseName = ***
-$sqlUserName = HimanshuSuccessUser
-$sqlPassword = ***
-$adUserSsmPassword = '/secure/dbpassword'
-$sqlActivity = 'create-user'
-param (
-    [string]$serverInstance,
-    [string]$databaseName,
-    [string]$sqlUserName,
-    [string]$sqlPassword,
-    [string]$adUserSsmPassword,
-    [string]$sqlActivity
-)
-# Import required Windows API functions
-Add-Type -TypeDefinition @
-using
-Error: Process completed with exit code 1.
+- name: Run remote PowerShell via SSM using script file
+  id: run-script-ssm
+  shell: pwsh
+  run: |
+    # Set variables
+    $scriptPath = "od-gha-files/create-sql-user.ps1"
+    $encodedScript = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes((Get-Content $scriptPath -Raw)))
+
+    # Parameters to inject
+    $paramBlock = @"
+`$serverInstance = '$env:DB_SERVER_NAME'
+`$databaseName = '$env:DB_NAME'
+`$sqlUserName = '$env:SQL_USER_NAME'
+`$sqlPassword = 'REPLACEME_SQL_PASSWORD'
+`$adUserSsmPassword = '$env:SQL_PASSWORD_PARAMETER_STORE'
+`$sqlActivity = 'validate-delete-user'
+"@
+
+    # Combine parameter block + script and encode
+    $scriptCombined = "$paramBlock`n$(Get-Content $scriptPath -Raw)"
+    $encodedFinal = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($scriptCombined))
+
+    # Create final command to decode and run on EC2
+    $finalCommand = "powershell -NoProfile -EncodedCommand $encodedFinal"
+
+    # Send the command
+    $commandId = aws ssm send-command `
+      --document-name "AWS-RunPowerShellScript" `
+      --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
+      --parameters commands=["$finalCommand"] `
+      --comment "Run create-user script via SSM" `
+      --region "$env:AWS_REGION" `
+      --query "Command.CommandId" `
+      --output text
+
+    echo "command-id=$commandId" >> $env:GITHUB_OUTPUT
