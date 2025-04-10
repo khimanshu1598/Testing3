@@ -1,7 +1,8 @@
 - name: Verify sql-actions.ps1 exists on EC2
   shell: pwsh
   run: |
-    $verifyCommand = '"if (Test-Path ''C:\\Temp\\EmployeeInvitation\\sql-actions.ps1'') { Write-Host ''✅ File exists'' } else { Write-Host ''❌ File missing''; exit 1 }"'
+    # Escape everything: PowerShell inside CLI inside YAML inside GitHub Action 😅
+    $verifyCommand = '"if (Test-Path \"C:\\Temp\\EmployeeInvitation\\sql-actions.ps1\") { Write-Host \"✅ File exists\" } else { Write-Host \"❌ File missing\"; exit 1 }"'
 
     $commandId = aws ssm send-command `
       --document-name "AWS-RunPowerShellScript" `
@@ -19,7 +20,7 @@
       --command-id $commandId `
       --instance-id "i-0abc123def456ghij"
 
-    # Optional: print the output
+    # Optional: get output
     $output = aws ssm get-command-invocation `
       --region "us-west-2" `
       --command-id $commandId `
@@ -29,6 +30,7 @@
 
     Write-Host "`n📄 Script Output:"
     Write-Host "$output"
+
 
 
 
