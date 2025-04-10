@@ -1,45 +1,47 @@
 - name: Send PowerShell script to EC2 via SSM
-          id: run-ssm-script
-          shell: powershell
-          run: |
-            $parameter_store_name = "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
-            $region = "${{ env.AWS_REGION }}"
-            # Fetch the password from SSM (with decryption)
-            $sqlPassword = aws ssm get-parameter `
-              --name "$parameter_store_name" `
-              --with-decryption `
-              --region "$region" `
-              --query "Parameter.Value" `
-              --output text
-            $scriptPath = "od-gha-files/sql-actions.ps1"
-            $encodedScript = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes((Get-Content $scriptPath -Raw)))
-        
-            # Optional: Inject variable values if needed (or handle in the script itself)
-            $paramBlock = @"
-            `$serverInstance = ${{ env.INSTANCE_ID }}
-            `$databaseName = ${{ env.DB_NAME }}
-            `$sqlUserName = ${{ env.SQL_USER_NAME }}
-            `$sqlPassword = "$sqlPassword"
-            `$adUserSsmPassword = '/secure/dbpassword'
-            `$sqlActivity = 'create-user'
-            "@
-            
-            # Combine parameter block + script and encode
-            $scriptCombined = "$paramBlock`n$(Get-Content $scriptPath -Raw)"
-            $encodedFinal = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($scriptCombined))
-            
-            # Create final command to decode and run on EC2
-            $finalCommand = "powershell -NoProfile -EncodedCommand $encodedFinal"
-            
-        
-            # Send the command
-            $commandId = aws ssm send-command `
-            --document-name "AWS-RunPowerShellScript" `
-            --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-            --parameters commands=["$finalCommand"] `
-            --comment "Run create-user script via SSM" `
-            --region "$env:AWS_REGION" `
-            --query "Command.CommandId" `
-            --output text
+  id: run-ssm-script
+  shell: pwsh
+  run: |
+    # Fetch SQL password from Parameter Store
+    $parameter_store_name = "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
+    $region = "${{ env.AWS_REGION }}"
+    $sqlPassword = aws ssm get-parameter `
+      --name "$parameter_store_name" `
+      --with-decryption `
+      --region "$region" `
+      --query "Parameter.Value" `
+      --output text
 
-            echo "command-id=$commandId" >> $env:GITHUB_OUTPUT
+    # Prepare parameters for the script
+    $scriptArgs = @(
+      "-serverInstance", "${{ env.DB_SERVER_NAME }}",
+      "-databaseName", "${{ env.DB_NAME }}",
+      "-sqlUserName", "${{ env.SQL_USER_NAME }}",
+      "-sqlPassword", "$sqlPassword",
+      "-adUserSsmPassword", "/secure/dbpassword",
+      "-sqlActivity", "create-user"
+    )
+
+    # Load the script content
+    $scriptPath = "od-gha-files/sql-actions.ps1"
+    $scriptContent = Get-Content $scriptPath -Raw
+    $fullScript = $scriptContent + "`n" + '$args = @(' + ($scriptArgs -join ', ') + ')'
+
+    # Encode the final script
+    $encodedScript = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($scriptContent))
+
+    # Prepare final command to decode and run script with arguments
+    $psArgs = $scriptArgs -join ' '
+    $finalCommand = "powershell -NoProfile -Command `"& { [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('$encodedScript')) } $psArgs`""
+
+    # Send the command to EC2 via SSM
+    $commandId = aws ssm send-command `
+      --document-name "AWS-RunPowerShellScript" `
+      --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
+      --parameters commands=["$finalCommand"] `
+      --comment "Run sql-actions.ps1 with parameters via SSM" `
+      --region "$env:AWS_REGION" `
+      --query "Command.CommandId" `
+      --output text
+
+    echo "command-id=$commandId" >> $env:GITHUB_OUTPUT
