@@ -83,13 +83,8 @@ jobs:
 
 ----------------
 
-Error parsing parameter '--parameters': Expected: ',', received: ''' for input:
- commands=[if (Test-Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1') { Write-Host 'File exists' } else { Write-Host 'File missing'; exit 1 }]
-                        ^
-Verify Command ID: 
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --command-id: expected one argument
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Error parsing parameter '--parameters': Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+JSON received: {commands:[Get-ChildItem -Path "C:\\Temp\\EmployeeInvitation" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json]}
+Error: Process completed with exit code 1.
