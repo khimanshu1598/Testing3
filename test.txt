@@ -102,8 +102,13 @@ jobs:
 
 ----------------
 
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
 Error parsing parameter '--parameters': Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
-JSON received: {commands:[Get-ChildItem -Path "C:\\Temp\\EmployeeInvitation" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json]}
-Error: Process completed with exit code 1.
+JSON received: {commands:[Get-ChildItem -Path "C:\\Temp\\EmployeeInvitation" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json -Compress]}
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+aws.exe: error: argument --command-id: expected one argument
+Files in C:\Temp\EmployeeInvitation:
+Error checking files:
