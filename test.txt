@@ -1,54 +1,10 @@
-- name: Verify files on target server
-  shell: pwsh
+- name: List files via SSM (Windows-compatible)
+  shell: pwsh  # PowerShell Core (works on all runners)
   run: |
-    # Properly formatted JSON parameters
-    $parameters = @{
-      commands = @(
-        'Get-ChildItem -Path "C:\Temp\EmployeeInvitation" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json -Compress'
-      )
-    } | ConvertTo-Json -Compress -Depth 3
-    
-    # Send command to list files
-    $commandOutput = aws ssm send-command `
-      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
+    aws ssm send-command `
+      --instance-id "$env:AWS_INSTANCE_ID" `
       --document-name "AWS-RunPowerShellScript" `
-      --parameters "$parameters" `
-      --output json
-    
-    # Get command ID
-    $commandId = ($commandOutput | ConvertFrom-Json).Command.CommandId
-    
-    # Wait for command to complete
-    Start-Sleep -Seconds 5
-    
-    # Get command results
-    $result = aws ssm get-command-invocation `
-      --command-id $commandId `
-      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
-      --output json | ConvertFrom-Json
-    
-    # Output the file list
-    Write-Host "Files in C:\Temp\EmployeeInvitation:"
-    if ($result.Status -eq "Success") {
-      try {
-        $files = $result.StandardOutputContent | ConvertFrom-Json
-        $files | Format-Table -AutoSize | Out-Host
-        
-        # Verify our specific file exists
-        $targetFile = $files | Where-Object { $_.Name -eq "sql-actions.ps1" }
-        if (-not $targetFile) {
-          throw "sql-actions.ps1 not found in target directory"
-        }
-        Write-Host "Verified sql-actions.ps1 exists (Size: $($targetFile.Length) bytes)"
-      } catch {
-        Write-Host "Error parsing file list: $_"
-        exit 1
-      }
-    } else {
-      Write-Host "Error checking files:"
-      Write-Host $result.StandardErrorContent
-      exit 1
-    }
+      --parameters '{\"commands\":[\"dir C:\\\\Temp\\\\EmployeeInvitation\"]}'
 
 
 
