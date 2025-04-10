@@ -1,26 +1,3 @@
-name: "Send PowerShell Script to EC2 via SSM"
-description: "Uploads a single PowerShell script to a Windows EC2 instance via SSM and stores it under C:\\Temp\\EmployeeInvitation"
-inputs:
-  script_path:
-    description: "Path to the PowerShell script"
-    required: true
-  instance_id:
-    description: "Target EC2 instance ID"
-    required: true
-  region:
-    description: "AWS region"
-    required: true
-runs:
-  using: "composite"
-  steps:
-    - name: Encode PowerShell Script to Base64
-      id: encode
-      shell: pwsh
-      run: |
-        $script = Get-Content "${{ inputs.script_path }}" -Raw
-        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script))
-        "scriptEncoded=$encoded" >> $env:GITHUB_OUTPUT
-
     - name: Transfer Script to EC2 and Save in C:\Temp\EmployeeInvitation
       shell: pwsh
       run: |
@@ -33,7 +10,8 @@ runs:
           "Write-Host '✅ sql-actions.ps1 transferred successfully'"
         )
 
-        $commandJson = $commands | ForEach-Object { "`"`$_`"" } -join ","
+        # ✅ FIXED: Use parentheses before -join
+        $commandJson = ($commands | ForEach-Object { "`"`$_`"" }) -join ","
 
         $commandId = aws ssm send-command `
           --document-name "AWS-RunPowerShellScript" `
@@ -50,6 +28,7 @@ runs:
           --region "${{ inputs.region }}" `
           --command-id $commandId `
           --instance-id "${{ inputs.instance_id }}"
+
 
 
 
