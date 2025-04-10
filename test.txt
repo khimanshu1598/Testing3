@@ -1,36 +1,10 @@
-- name: Run remote PowerShell via SSM using script file
-  id: run-script-ssm
-  shell: pwsh
-  run: |
-    # Set variables
-    $scriptPath = "od-gha-files/create-sql-user.ps1"
-    $encodedScript = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes((Get-Content $scriptPath -Raw)))
-
-    # Parameters to inject
-    $paramBlock = @"
-`$serverInstance = '$env:DB_SERVER_NAME'
-`$databaseName = '$env:DB_NAME'
-`$sqlUserName = '$env:SQL_USER_NAME'
-`$sqlPassword = 'REPLACEME_SQL_PASSWORD'
-`$adUserSsmPassword = '$env:SQL_PASSWORD_PARAMETER_STORE'
-`$sqlActivity = 'validate-delete-user'
-"@
-
-    # Combine parameter block + script and encode
-    $scriptCombined = "$paramBlock`n$(Get-Content $scriptPath -Raw)"
-    $encodedFinal = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($scriptCombined))
-
-    # Create final command to decode and run on EC2
-    $finalCommand = "powershell -NoProfile -EncodedCommand $encodedFinal"
-
-    # Send the command
-    $commandId = aws ssm send-command `
-      --document-name "AWS-RunPowerShellScript" `
-      --targets "Key=instanceIds,Values=$env:INSTANCE_ID" `
-      --parameters commands=["$finalCommand"] `
-      --comment "Run create-user script via SSM" `
-      --region "$env:AWS_REGION" `
-      --query "Command.CommandId" `
-      --output text
-
-    echo "command-id=$commandId" >> $env:GITHUB_OUTPUT
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Get-Content : Cannot find path 'C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-a
+pi\od-gha-files\create-sql-user.ps1' because it does not exist.
+At C:\actions-runner\_work\_temp\fbea6e1f-d438-4542-8bef-12f28874e613.ps1:12 char:86
++ ... tem.Text.Encoding]::Unicode.GetBytes((Get-Content $scriptPath -Raw)))
++                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\actions-runn...te-sql-user.ps1:String) [Get-Content], ItemNotFoundEx 
+   ception
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetContentCommand
