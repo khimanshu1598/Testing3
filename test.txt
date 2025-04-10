@@ -18,26 +18,40 @@ runs:
       id: encode_file
       shell: pwsh
       run: |
+        # Read file content and convert to base64
         $content = Get-Content -Path "${{ inputs.file-path }}" -Raw -Encoding UTF8
         $base64Content = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content))
         echo "::set-output name=content::$base64Content"
         
-    - name: Send file via SSM
+    - name: Create SSM command
+      id: create_command
       shell: pwsh
       run: |
-        $command = @"
+        # Create the PowerShell command that will run on the target
+        $psCommand = @"
         `$bytes = [System.Convert]::FromBase64String('${{ steps.encode_file.outputs.content }}')
         `$content = [System.Text.Encoding]::UTF8.GetString(`$bytes)
         if (-not (Test-Path '${{ inputs.destination-path }}')) {
-            New-Item -ItemType Directory -Path '${{ inputs.destination-path }}' -Force
+            New-Item -ItemType Directory -Path '${{ inputs.destination-path }}' -Force | Out-Null
         }
         Set-Content -Path "${{ inputs.destination-path }}\$(Split-Path -Leaf '${{ inputs.file-path }}')" -Value `$content -Encoding UTF8 -Force
         "@
+
+        # Properly escape for JSON
+        $escapedCommand = $psCommand -replace '"', '\"' -replace "`n", " "
+        $parameters = @{
+            commands = @($escapedCommand)
+        } | ConvertTo-Json -Compress -Depth 10
         
+        echo "::set-output name=parameters::$($parameters -replace '"', '\"')"
+        
+    - name: Send file via SSM
+      shell: pwsh
+      run: |
         aws ssm send-command `
           --instance-ids "${{ inputs.instance-id }}" `
           --document-name "AWS-RunPowerShellScript" `
-          --parameters "{\"commands\":[\"$($command -replace '"', '\"')]}" `
+          --parameters '${{ steps.create_command.outputs.parameters }}' `
           --output text
 
 
