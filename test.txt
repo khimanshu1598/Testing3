@@ -1,19 +1,18 @@
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Run $encoded = "cGFyYW0gKAogICAgW3N0cmluZ10kc2VydmVySW5zdGFuY2UsCiAgICBbc3RyaW5nXSRkYXRhYmFzZU5hbWUsCiAgICBbc3RyaW5nXSRzcWxVc2VyTmFtZSwKICAgIFtzdHJpbmddJHNxbFBhc3N3b3JkLAogICAgW3N0cmluZ10kYWRVc2VyU3NtUGFzc3dvcmQsCiAgICBbc3RyaW5nXSRzcWxBY3Rpdml0eQopCgojIEltcG9ydCByZXF1aXJlZCBXaW5kb3dzIEFQSSBmdW5jdGlvbnMKQWRkLVR5cGUgLVR5cGVEZWZpbml0aW9uIEAiCnVzaW5nIFN5c3RlbTsKdXNpbmcgU3lzdGVtLlJ1bnRpbWUuSW50ZXJvcFNlcnZpY2VzOwoKcHVibGljIGNsYXNzIFdpbjMyIHsKICAgIFtEbGxJbXBvcnQoImFkdmFwaTMyLmRsbCIsIFNldExhc3RFcnJvciA9IHRydWUsIENoYXJTZXQgPSBDaGFyU2V0LlVuaWNvZGUpXQogICAgcHVibGljIHN0YXRpYyBleHRlcm4gYm9vbCBMb2dvblVzZXIoCiAgICAgICAgU3RyaW5nIHVzZXJuYW1lLAogICAgICAgIFN0cmluZyBkb21haW4sCiAgICAgICAgSW50UHRyIHBhc3N3b3JkLAogICAgICAgIGludCBsb2dvblR5cGUsCiAgICAgICAgaW50IGxvZ29uUHJvdmlkZXIsCiAgICAgICAgcmVmIEludFB0ciB0b2tlbik7CgogICAgW0RsbEltcG9ydCgia2VybmVsMzIuZGxsIildCiAgICBwdWJsaWMgc3RhdGljIGV4dGVybiBib29sIENsb3NlSGFuZGxlKEludFB0ciBoYW5kbGUpOwp9CiJACgojICMgRnVuY3Rpb24gdG8gZ2VuZXJhdGUgYSByYW5kb20gc3Ryb25nIHBhc3N3b3JkCiMgZnVuY3Rpb24gR2V
-  
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Error parsing parameter '--parameters': Expected: ',', received: ''' for input:
- commands=[\ = 'cGFyYW0gKAogICAgW3N0cmluZ10kc2VydmVySW5zdGFuY2UsCiAgICBbc3RyaW5nXSRkYXRhYmFzZU5hbWUsCiAgICBbc3RyaW5nXSRzcWxVc2VyTmFtZSwKICAgIFtzdHJpbmddJHNxbFBhc3N3b3JkLAogICAgW3N0cmluZ10kYWRVc2VyU3NtUGFzc3dvcmQsCiAgICBbc3RyaW5nXSRzcWxBY3Rpdml0eQopCgojIEltcG9ydCByZXF1aXJlZCBXaW5kb3dzIEFQSSBmdW5jdGlvbnMKQWRkLVR5cGUgLVR5cGVEZWZpbml0aW9uIEAiCnVzaW5nIFN5c3RlbTsKdXNpbmcgU3lzdGVtLlJ1bnRpbWUuSW50ZXJvcFNlcnZpY2VzOwoKcHVibGljIGNsYXNzIFdpbjMyIHsKICAgIFtEbGxJbXBvcnQoImFkdmFwaTMyLmRsbCIsIFNldExhc3RFcnJvciA9IHRydWUsIENoYXJTZXQgPSBDaGFyU2V0LlVuaWNvZGUpXQogICAgcHVibGljIHN0YXRpYyBleHRlcm4gYm9vbCBMb2dvblVzZXIoCiAgICAgICAgU3RyaW5nIHVzZXJuYW1lLAogICAgICAgIFN0cmluZyBkb21haW4sCiAgICAgICAgSW50UHRyIHBhc3N3b3JkLAogICAgICAgIGludCBsb2dvblR5cGUsCiAgICAgICAgaW50IGxvZ29uUHJvdmlkZXIsCiAgICAgICAgcmVmIEludFB0ciB0b2tlbik7CgogICAgW0RsbEltcG9ydCgia2VybmVsMzIuZGxsIildCiAgICBwdWJsaWMgc3RhdGljIGV4dGVybiBib29sIENsb3NlSGFuZGxlKEludFB0ciBoYW5kbGUpOwp9CiJACgojICMgRnVuY3Rpb24gdG8gZ2VuZXJhdGUgYSByYW5kb20gc3Ryb25nIHBhc3N3b3JkCiMgZnVuY3Rpb24gR2VuZXJhdGUt
-              ^
-\ = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\))
-# Ensure directory exists and is clean
-\ = 'C:\Temp\EmployeeInvitation'
-if (!(Test-Path -Path \)) {
-  New-Item -ItemType Directory -Path \ | Out-Null
-} else {
-  Get-ChildItem -Path \ -Recurse -Force | Remove-Item -Force -Recurse
-}
-Set-Content -Path \\sql-actions.ps1 -Value \ -Force]
-Command ID: 
+- name: Send script to EC2 and save in C:\Temp\EmployeeInvitation
+  shell: pwsh
+  run: |
+    $encoded = "${{ steps.encode.outputs.encoded }}"
+
+    # Escape the inline PowerShell for SSM CLI
+    $ssmCommand = "powershell -Command `"\$base64='${encoded}';\$decoded=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$base64));if (!(Test-Path -Path 'C:\\Temp\\EmployeeInvitation')) { New-Item -ItemType Directory -Path 'C:\\Temp\\EmployeeInvitation' | Out-Null } else { Get-ChildItem -Path 'C:\\Temp\\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }; Set-Content -Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1' -Value \$decoded -Force`""
+
+    $commandId = aws ssm send-command `
+      --document-name "AWS-RunPowerShellScript" `
+      --instance-ids "${{ inputs.instance_id }}" `
+      --region "${{ inputs.region }}" `
+      --parameters "commands=[$ssmCommand]" `
+      --comment "Create/Clean EmployeeInvitation dir and send script" `
+      --query "Command.CommandId" `
+      --output text
+
+    echo "Command ID: $commandId"
