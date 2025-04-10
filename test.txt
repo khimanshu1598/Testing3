@@ -98,12 +98,16 @@ jobs:
 
 ----------------
 
-Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
-Error parsing parameter '--parameters': Expected: '=', received: 'EOF' for input:
- System.Collections.Hashtable
-                            ^
-Command ID: 
+ForEach-Object : Cannot bind parameter 'RemainingScripts'. Cannot convert the "-join" value of type "System.String" to 
+type "System.Management.Automation.ScriptBlock".
+At C:\actions-runner\_work\_temp\1d504db8-a87b-4013-b6b6-2cf906a3ee29.ps1:11 char:28
++ $commandJson = $commands | ForEach-Object { "`"`$_`"" } -join ","
++                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [ForEach-Object], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : CannotConvertArgumentNoMessage,Microsoft.PowerShell.Commands.ForEachObjectCommand
+ 
+Error: Process completed with exit code 1.
 
   #     echo "VERIFY_FILE_TRANSFER_COMMAND_ID=$command_id" >> $GITHUB_ENV
   #     aws ssm wait command-executed --region "${{ inputs.aws_region }}" --command-id "$command_id" --instance-id "$INSTANCE_ID"
