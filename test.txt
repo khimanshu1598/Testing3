@@ -101,14 +101,11 @@ jobs:
 
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
-At C:\actions-runner\_work\_temp\bfd336c7-1416-4b68-b013-67d92870f7df.ps1:14 char:65
-+   --parameters "{\"commands\":[\"$($command -replace '"', '\"')]}" `
-+                                                                 ~
-Unexpected token '}' in expression or statement.
-At C:\actions-runner\_work\_temp\bfd336c7-1416-4b68-b013-67d92870f7df.ps1:14 char:66
-+   --parameters "{\"commands\":[\"$($command -replace '"', '\"')]}" `
-+                                                                  ~~~
-The string is missing the terminator: ".
-    + CategoryInfo          : ParserError: (:) [], ParseException
-    + FullyQualifiedErrorId : UnexpectedToken
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+Unknown options: [System.Convert]::FromBase64String(\u0027cGFyYW0gKAogICAgW3N0cmluZ10kc2VydmVySW5zdGFuY2UsCiAgICBbc3RyaW5nXSRkYXRhYmFzZU5hbWUsCiAgICBbc3RyaW5nXSRzcWxVc2VyTmFtZSwKICAgIFtzdHJpbmddJHNxbFBhc3N3b3JkLAogICAgW3N0cmluZ10kYWRVc2VyU3NtUGFzc3dvcmQsCiAgICBbc3RyaW5nXSRzcWxBY3Rpdml0eQopCgojIEltcG9ydCByZXF1aXJlZCBXaW5kb3dzIEFQSSBmdW5jdGlvbnMKQWRkLVR5cGUgLVR5cGVEZWZpbml0aW9uIEAiCnVzaW5nIFN5c3RlbTsKdXNpbmcgU3lzdGVtLlJ1bnRpbWUuSW50ZXJvcFNlcnZpY2VzOwoKcHVibGljIGNsYXNzIFdpbjMyIHsKICAgIFtEbGxJbXBvcnQoImFkdmFwaTMyLmRsbCIsIFNldExhc3RFcnJvciA9IHRydWUsIENoYXJTZXQgPSBDaGFyU2V0LlVuaWNvZGUpXQogICAgcHVibGljIHN0YXRpYyBleHRlcm4gYm9vbCBMb2dvblVzZXIoCiAgICAgICAgU3RyaW5nIHVzZXJuYW1lLAogICAgICAgIFN0cmluZyBkb21haW4sCiAgICAgICAgSW50UHRyIHBhc3N3b3JkLAogICAgICAgIGludCBsb2dvblR5cGUsCiAgICAgICAgaW50IGxvZ29uUHJvdmlkZXIsCiAgICAgICAgcmVmIEludFB0ciB0b2tlbik7CgogICAgW0RsbEltcG9ydCgia2VybmVsMzIuZGxsIildCiAgICBwdWJsaWMgc3RhdGljIGV4dGVybiBib29sIENsb3NlSGFuZGxlKEludFB0ciBoYW5kbGUpOwp9CiJACgojICMgRnVuY3Rpb24gdG8gZ2VuZXJhdGUgYSByYW5kb20gc3Ryb2
+Error: Process completed with exit code 1.
 
