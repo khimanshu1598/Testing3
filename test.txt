@@ -7,15 +7,29 @@
       --document-name "AWS-RunPowerShellScript" `
       --instance-ids "i-0abc123def456ghij" `
       --region "us-west-2" `
-      --parameters @{ "commands" = @($verifyCommand) } `
+      --parameters "commands=[$verifyCommand]" `
       --comment "Verify sql-actions.ps1 file exists" `
       --query "Command.CommandId" `
       --output text
+
+    Write-Host "Verify Command ID: $commandId"
 
     aws ssm wait command-executed `
       --region "us-west-2" `
       --command-id $commandId `
       --instance-id "i-0abc123def456ghij"
+
+    # Optional: print the output
+    $output = aws ssm get-command-invocation `
+      --region "us-west-2" `
+      --command-id $commandId `
+      --instance-id "i-0abc123def456ghij" `
+      --query "StandardOutputContent" `
+      --output text
+
+    Write-Host "`n📄 Script Output:"
+    Write-Host "$output"
+
 
 
 
