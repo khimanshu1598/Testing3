@@ -1,11 +1,18 @@
 - name: Verify files on target server
   shell: pwsh
   run: |
+    # Properly formatted JSON parameters
+    $parameters = @{
+      commands = @(
+        'Get-ChildItem -Path "C:\Temp\EmployeeInvitation" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json -Compress'
+      )
+    } | ConvertTo-Json -Compress -Depth 3
+    
     # Send command to list files
     $commandOutput = aws ssm send-command `
       --instance-id "${{ env.AWS_INSTANCE_ID }}" `
       --document-name "AWS-RunPowerShellScript" `
-      --parameters '{"commands":["Get-ChildItem -Path \"C:\\Temp\\EmployeeInvitation\" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json"]}' `
+      --parameters "$parameters" `
       --output json
     
     # Get command ID
@@ -23,8 +30,20 @@
     # Output the file list
     Write-Host "Files in C:\Temp\EmployeeInvitation:"
     if ($result.Status -eq "Success") {
-      $files = $result.StandardOutputContent | ConvertFrom-Json
-      $files | Format-Table -AutoSize | Out-Host
+      try {
+        $files = $result.StandardOutputContent | ConvertFrom-Json
+        $files | Format-Table -AutoSize | Out-Host
+        
+        # Verify our specific file exists
+        $targetFile = $files | Where-Object { $_.Name -eq "sql-actions.ps1" }
+        if (-not $targetFile) {
+          throw "sql-actions.ps1 not found in target directory"
+        }
+        Write-Host "Verified sql-actions.ps1 exists (Size: $($targetFile.Length) bytes)"
+      } catch {
+        Write-Host "Error parsing file list: $_"
+        exit 1
+      }
     } else {
       Write-Host "Error checking files:"
       Write-Host $result.StandardErrorContent
