@@ -1,33 +1,56 @@
-- name: List directory contents via SSM
-  shell: pwsh
-  run: |
-    $command = '"Get-ChildItem C:\\Temp\\EmployeeInvitation"'
+name: "Send PowerShell Script to EC2 via SSM"
+description: "Uploads a single PowerShell script to a Windows EC2 instance via SSM and stores it under C:\\Temp\\EmployeeInvitation"
+inputs:
+  script_path:
+    description: "Path to the PowerShell script"
+    required: true
+  instance_id:
+    description: "Target EC2 instance ID"
+    required: true
+  region:
+    description: "AWS region"
+    required: true
+runs:
+  using: "composite"
+  steps:
+  - name: Encode PowerShell Script to Base64
+    id: encode
+    shell: powershell
+    run: |
+      $script = Get-Content "${{ inputs.script_path }}" -Raw
+      $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script))
+      "scriptEncoded=$encoded" >> $env:GITHUB_OUTPUT
 
-    $commandId = aws ssm send-command `
-      --document-name "AWS-RunPowerShellScript" `
-      --instance-ids "${{ env.AWS_INSTANCE_ID }}" `
-      --region "${{ env.AWS_REGION }}" `
-      --parameters "commands=[$command]" `
-      --query "Command.CommandId" `
-      --output text
+  - name: Transfer Script to EC2 and Save in C:\Temp\EmployeeInvitation
+    shell: powershell
+    run: |
+      $encoded = "${{ steps.encode.outputs.scriptEncoded }}"
 
-    Write-Host "Command ID: $commandId"
+      $commands = @(
+        "if (!(Test-Path 'C:\Temp\EmployeeInvitation')) { New-Item -ItemType Directory -Path 'C:\Temp\EmployeeInvitation' | Out-Null } else { Get-ChildItem -Path 'C:\Temp\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }",
+        "`$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$encoded'))",
+        "Set-Content -Path 'C:\Temp\EmployeeInvitation\sql-actions.ps1' -Value `$decoded -Force",
+        "Write-Host 'sql-actions.ps1 transferred successfully'"
+      )
 
-    aws ssm wait command-executed `
-      --region "${{ env.AWS_REGION }}" `
-      --command-id $commandId `
-      --instance-id "${{ env.AWS_INSTANCE_ID }}"
+      #FIXED: Use parentheses before -join
+      $commandJson = ($commands | ForEach-Object { "`"`$_`"" }) -join ","
 
-    # Print the output
-    $output = aws ssm get-command-invocation `
-      --region "${{ env.AWS_REGION }}" `
-      --command-id $commandId `
-      --instance-id "${{ env.AWS_INSTANCE_ID }}" `
-      --query "StandardOutputContent" `
-      --output text
+      $commandId = aws ssm send-command `
+        --document-name "AWS-RunPowerShellScript" `
+        --instance-ids "${{ inputs.instance_id }}" `
+        --region "${{ inputs.region }}" `
+        --parameters "commands=[$commandJson]" `
+        --comment "Uploading sql-actions.ps1 to EC2" `
+        --query "Command.CommandId" `
+        --output text
 
-    Write-Host "`n📂 Folder Contents:"
-    Write-Host "$output"
+      Write-Host "Command ID: $commandId"
+
+      aws ssm wait command-executed `
+        --region "${{ inputs.region }}" `
+        --command-id $commandId `
+        --instance-id "${{ inputs.instance_id }}"
 
 
 
