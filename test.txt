@@ -67,13 +67,15 @@ jobs:
 
 ----------------
 
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-aws.exe : The command parameter was already specified.
-At C:\actions-runner\_work\_temp\ef10e601-d2a7-4318-86be-e5f0090f48df.ps1:2 char:14
-+ $commandId = aws ssm send-command `
-+              ~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : InvalidArgument: (:) [], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : ParameterSpecifiedAlready
- 
-Error: Process completed with exit code 1.
+Error parsing parameter '--parameters': Expected: '=', received: 'EOF' for input:
+ System.Collections.Hashtable
+                            ^
+
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+
+aws.exe: error: argument --command-id: expected one argument
