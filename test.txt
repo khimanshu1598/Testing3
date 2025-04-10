@@ -1,119 +1,51 @@
-name: 'SSM File Transfer'
-description: 'Securely transfer files to EC2 via AWS SSM with chunking support'
+name: "Send PowerShell Script to EC2 via SSM"
+description: "Uploads a single PowerShell script to a Windows EC2 instance via SSM and saves it under C:\\Temp\\EmployeeInvitation"
 inputs:
-  source-path:
-    description: 'Local path to the file'
+  script_path:
+    description: "Path to the PowerShell script"
     required: true
-  instance-id:
-    description: 'Target EC2 instance ID'
+  instance_id:
+    description: "Target EC2 instance ID"
     required: true
-  destination-path:
-    description: 'Destination path on target (include filename)'
+  region:
+    description: "AWS region"
     required: true
-  chunk-size:
-    description: 'Chunk size in bytes (default: 15000)'
-    default: '15000'
-    required: false
-
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-    - name: Validate inputs
+    - name: Encode PowerShell Script to Base64
+      id: encode
       shell: pwsh
       run: |
-        if (-not (Test-Path "${{ inputs.source-path }}")) {
-          throw "Source file not found at ${{ inputs.source-path }}"
-        }
-        if ([int]${{ inputs.chunk-size }} -gt 16000) {
-          throw "Chunk size cannot exceed 16000 bytes (AWS SSM limit)"
-        }
+        $script = Get-Content "${{ inputs.script_path }}" -Raw
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script))
+        "scriptEncoded=$encoded" >> $env:GITHUB_OUTPUT
 
-    - name: Prepare transfer
-      id: setup
+    - name: Transfer Script to EC2 and Save in C:\Temp\EmployeeInvitation
       shell: pwsh
       run: |
-        $file = Get-Item "${{ inputs.source-path }}"
-        $fileName = $file.Name
-        $tempTarget = "$env:RUNNER_TEMP/ssm-transfer"
-        
-        New-Item -ItemType Directory -Path $tempTarget -Force | Out-Null
-        $chunkCount = [math]::Ceiling($file.Length / ${{ inputs.chunk-size }})
-        
-        echo "::set-output name=file_name::$fileName"
-        echo "::set-output name=chunk_count::$chunkCount"
-        echo "::set-output name=file_size::$($file.Length)"
+        $encoded = "${{ steps.encode.outputs.scriptEncoded }}"
 
-    - name: Create target directory
-      shell: pwsh
-      run: |
-        $dir = Split-Path -Path "${{ inputs.destination-path }}" -Parent
-        $command = @"
-        if (-not (Test-Path '$dir')) { 
-          New-Item -ItemType Directory -Path '$dir' -Force | Out-Null 
-        }
-        Remove-Item "${{ inputs.destination-path }}.tmp" -ErrorAction SilentlyContinue
-        "@
+        $commands = @(
+          "if (!(Test-Path 'C:\Temp\EmployeeInvitation')) { New-Item -Path 'C:\Temp\EmployeeInvitation' -ItemType Directory | Out-Null } else { Get-ChildItem 'C:\Temp\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }",
+          "`$script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$encoded'))",
+          "Set-Content -Path 'C:\Temp\EmployeeInvitation\sql-actions.ps1' -Value `$script -Force",
+          "Write-Host '✅ sql-actions.ps1 transferred successfully'"
+        )
 
-        aws ssm send-command `
-          --instance-ids "${{ inputs.instance-id }}" `
+        $commandJson = $commands | ForEach-Object { "`"`$_`"" } | Out-String
+        $commandJson = $commandJson -replace '\r?\n', ','
+
+        $commandId = aws ssm send-command `
           --document-name "AWS-RunPowerShellScript" `
-          --parameters "commands=['$($command -replace "'", "''")']" `
+          --instance-ids "${{ inputs.instance_id }}" `
+          --region "${{ inputs.region }}" `
+          --parameters @{ commands = @($commandJson) } `
+          --query "Command.CommandId" `
           --output text
 
-    - name: Transfer chunks
-      shell: pwsh
-      run: |
-        $reader = [System.IO.File]::OpenText("${{ inputs.source-path }}")
-        $buffer = New-Object char[] ${{ inputs.chunk-size }}
-        $chunkIndex = 0
-        
-        try {
-          while (($bytesRead = $reader.Read($buffer, 0, $buffer.Length)) -gt 0) {
-            $chunk = [string]::new($buffer, 0, $bytesRead)
-            $chunkFile = "$env:RUNNER_TEMP/ssm-transfer/chunk_$chunkIndex.txt"
-            Set-Content -Path $chunkFile -Value $chunk -Encoding UTF8 -NoNewline
-            
-            $command = @"
-            Add-Content -Path "${{ inputs.destination-path }}.tmp" -Value @'
-            $(Get-Content $chunkFile -Raw -Encoding UTF8)
-            '@ -Encoding UTF8 -NoNewline
-            "@
+        echo "Command ID: $commandId"
 
-            aws ssm send-command `
-              --instance-ids "${{ inputs.instance-id }}" `
-              --document-name "AWS-RunPowerShellScript" `
-              --parameters "commands=['$($command -replace "'", "''")']" `
-              --output text
-            
-            $chunkIndex++
-          }
-        } finally {
-          $reader.Close()
-        }
-
-    - name: Finalize transfer
-      shell: pwsh
-      run: |
-        $verifyCommand = @"
-        if (Test-Path "${{ inputs.destination-path }}.tmp") {
-          Move-Item -Path "${{ inputs.destination-path }}.tmp" `
-                    -Destination "${{ inputs.destination-path }}" -Force
-          
-          $actualSize = (Get-Item "${{ inputs.destination-path }}").Length
-          if ($actualSize -ne ${{ steps.setup.outputs.file_size }}) {
-            throw "Size mismatch! Expected ${{ steps.setup.outputs.file_size }} bytes, got $actualSize"
-          }
-          echo "Transfer validated ($actualSize bytes)"
-        } else {
-          throw "Temporary file not found!"
-        }
-        "@
-
-        aws ssm send-command `
-          --instance-ids "${{ inputs.instance-id }}" `
-          --document-name "AWS-RunPowerShellScript" `
-          --parameters "commands=['$($verifyCommand -replace "'", "''")']" `
-          --output text
 
 
 -----------------
