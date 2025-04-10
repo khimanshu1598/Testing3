@@ -1,33 +1,20 @@
-    - name: Transfer Script to EC2 and Save in C:\Temp\EmployeeInvitation
-      shell: pwsh
-      run: |
-        $encoded = "${{ steps.encode.outputs.scriptEncoded }}"
+- name: Verify sql-actions.ps1 exists on EC2
+  shell: pwsh
+  run: |
+    $commandId = aws ssm send-command `
+      --document-name "AWS-RunPowerShellScript" `
+      --instance-ids "i-0abc123def456ghij" `
+      --region "us-west-2" `
+      --parameters "commands=[\"if (Test-Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1') { Write-Host '✅ File exists' } else { Write-Host '❌ File missing'; exit 1 }\"]" `
+      --comment "Verify sql-actions.ps1 file exists" `
+      --query "Command.CommandId" `
+      --output text
 
-        $commands = @(
-          "if (!(Test-Path 'C:\Temp\EmployeeInvitation')) { New-Item -ItemType Directory -Path 'C:\Temp\EmployeeInvitation' | Out-Null } else { Get-ChildItem -Path 'C:\Temp\EmployeeInvitation' -Recurse -Force | Remove-Item -Force -Recurse }",
-          "`$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$encoded'))",
-          "Set-Content -Path 'C:\Temp\EmployeeInvitation\sql-actions.ps1' -Value `$decoded -Force",
-          "Write-Host '✅ sql-actions.ps1 transferred successfully'"
-        )
+    aws ssm wait command-executed `
+      --region "us-west-2" `
+      --command-id $commandId `
+      --instance-id "i-0abc123def456ghij"
 
-        # ✅ FIXED: Use parentheses before -join
-        $commandJson = ($commands | ForEach-Object { "`"`$_`"" }) -join ","
-
-        $commandId = aws ssm send-command `
-          --document-name "AWS-RunPowerShellScript" `
-          --instance-ids "${{ inputs.instance_id }}" `
-          --region "${{ inputs.region }}" `
-          --parameters "commands=[$commandJson]" `
-          --comment "Uploading sql-actions.ps1 to EC2" `
-          --query "Command.CommandId" `
-          --output text
-
-        Write-Host "Command ID: $commandId"
-
-        aws ssm wait command-executed `
-          --region "${{ inputs.region }}" `
-          --command-id $commandId `
-          --instance-id "${{ inputs.instance_id }}"
 
 
 
