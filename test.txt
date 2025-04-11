@@ -1,49 +1,23 @@
-    - name: 🧪 Extract DACPAC
-      run: |
-        $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-        powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
-          -Action Extract `
-          -OutputPath "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac" `
-          -ServerInstance "${{ env.DB_SERVER_NAME }}" `
-          -DatabaseName "DBA" `
-          -UserName "${{ env.SQL_USER_NAME }}" `
-          -Password "$retrievedPassword" `
-          -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
-      shell: powershell
+- name: 🧪 DeployReport DACPAC
+  shell: powershell
+  run: |
+    # Retrieve password securely
+    $retrievedPassword = & aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
 
-    - name: 🧪 DeployReport DACPAC
-      run: |
-        $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-        powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
-          -Action DeployReport `
-          -DacpacPath: "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac"
-          -OutputPath "${{ github.workspace }}\dacpacs\DBA.xml" `
-          -ServerInstance "${{ env.DB_SERVER_NAME }}" `
-          -DatabaseName "DBA" `
-          -UserName "${{ env.SQL_USER_NAME }}" `
-          -Password "$retrievedPassword" `
-          -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
-      shell: powershell
+    # Build script path
+    $scriptPath = "${{ github.workspace }}\od-gha-files\sqlpackage-runner-fixed.ps1"
 
-    - name: 🧪 Script DACPAC
-      run: |
-        $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
-        powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
-          -Action Script `
-          -DacpacPath: "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac"
-          -OutputPath "${{ github.workspace }}\dacpacs\DBA.sql" `
-          -ServerInstance "${{ env.DB_SERVER_NAME }}" `
-          -DatabaseName "DBA" `
-          -UserName "${{ env.SQL_USER_NAME }}" `
-          -Password "$retrievedPassword" `
-          -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
-      shell: powershell
+    # Run deploy report action
+    & $scriptPath `
+      -Action "DeployReport" `
+      -DacpacPath "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac" `
+      -OutputPath "${{ github.workspace }}\dacpacs\DBA.xml" `
+      -ServerInstance "${{ env.DB_SERVER_NAME }}" `
+      -DatabaseName "DBA" `
+      -UserName "${{ env.SQL_USER_NAME }}" `
+      -Password "$retrievedPassword" `
+      -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
 
-    - name: Verify DACPAC
-      run: |
-        echo "Listing files in dacpacs directory:"
-        ls -l "${{ github.workspace }}/dacpacs"
-      shell: bash
 
 
 -----------------------
