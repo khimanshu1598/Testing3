@@ -1,24 +1,4 @@
-- name: Send script to EC2 via SSM (Git Bash on Windows)
-  shell: bash
-  run: |
-    # Encode the file in base64 (no line wrapping)
-    ENCODED=$(base64 -w 0 od-gha-files/sql-actions.ps1)
-
-    # Build the PowerShell command to run remotely
-    PS_COMMAND="\$b64='$ENCODED'; \
-    if (!(Test-Path 'C:\\Temp\\EmployeeInvitation')) { New-Item -Path 'C:\\Temp\\EmployeeInvitation' -ItemType Directory | Out-Null }; \
-    \$decoded=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
-    Set-Content -Path 'C:\\Temp\\EmployeeInvitation\\sql-actions.ps1' -Value \$decoded -Force"
-
-    # Send it to EC2 via SSM
-    aws ssm send-command \
-      --document-name "AWS-RunPowerShellScript" \
-      --instance-ids "$AWS_INSTANCE_ID" \
-      --region "us-west-2" \
-      --comment "Uploading sql-actions.ps1 via GitHub Actions" \
-      --parameters "commands=[\"$PS_COMMAND\"]" \
-      --query "Command.CommandId" \
-      --output text
+An error occurred (ValidationException) when calling the SendCommand operation: 1 validation error detected: Value at 'instanceIds' failed to satisfy constraint: Member must satisfy constraint: [Member must have length less than or equal to 20, Member must have length greater than or equal to 10, Member must satisfy regular expression pattern: (^i-(\w{8}|\w{17})$)|(^mi-\w{17}$), Member must not be null]
 
 
 
