@@ -1,93 +1,161 @@
-An error occurred (ValidationException) when calling the SendCommand operation: 1 validation error detected: Value at 'instanceIds' failed to satisfy constraint: Member must satisfy constraint: [Member must have length less than or equal to 20, Member must have length greater than or equal to 10, Member must satisfy regular expression pattern: (^i-(\w{8}|\w{17})$)|(^mi-\w{17}$), Member must not be null]
+    - name: 🧪 Extract DACPAC
+      run: |
+        $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+        powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
+          -Action Extract `
+          -OutputPath "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac" `
+          -ServerInstance "${{ env.DB_SERVER_NAME }}" `
+          -DatabaseName "DBA" `
+          -UserName "${{ env.SQL_USER_NAME }}" `
+          -Password "$retrievedPassword" `
+          -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
+      shell: powershell
+
+    - name: 🧪 DeployReport DACPAC
+      run: |
+        $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+        powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
+          -Action DeployReport `
+          -DacpacPath: "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac"
+          -OutputPath "${{ github.workspace }}\dacpacs\DBA.xml" `
+          -ServerInstance "${{ env.DB_SERVER_NAME }}" `
+          -DatabaseName "DBA" `
+          -UserName "${{ env.SQL_USER_NAME }}" `
+          -Password "$retrievedPassword" `
+          -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
+      shell: powershell
+
+    - name: 🧪 Script DACPAC
+      run: |
+        $retrievedPassword = aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+        powershell -ExecutionPolicy Bypass -File "${{ github.workspace }}/od-gha-files/sqlpackage-runner-fixed.ps1" `
+          -Action Script `
+          -DacpacPath: "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac"
+          -OutputPath "${{ github.workspace }}\dacpacs\DBA.sql" `
+          -ServerInstance "${{ env.DB_SERVER_NAME }}" `
+          -DatabaseName "DBA" `
+          -UserName "${{ env.SQL_USER_NAME }}" `
+          -Password "$retrievedPassword" `
+          -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
+      shell: powershell
+
+    - name: Verify DACPAC
+      run: |
+        echo "Listing files in dacpacs directory:"
+        ls -l "${{ github.workspace }}/dacpacs"
+      shell: bash
 
 
-
-
-
-
-
-
-
-
+-----------------------
 
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-Unknown options: "C:\Temp\EmployeeInvitation"), {, Get-ChildItem, "C:\Temp\EmployeeInvitation", }, else, {, Write-Host, "�\x9d�, Folder, not, found";, exit, 1, }], (Test-Path
-Command ID: 
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --command-id: expected one argument
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --command-id: expected one argument
- Folder Contents:
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Script started. Action: DeployReport
+Test-Path : Cannot bind argument to parameter 'Path' because it is an empty string.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:18 char:21
++ if (-not (Test-Path $SqlPackagePath)) {
++                     ~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [Test-Path], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,Microsoft.PowerShell.Commands.Test 
+   PathCommand
+ 
+-OutputPath : The term '-OutputPath' is not recognized as the name of a cmdlet, function, script file, or operable 
+program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At C:\actions-runner\_work\_temp\0e4fcb8d-0c85-4be8-a05f-49f36bdfd579.ps1:6 char:3
++   -OutputPath "C:\actions-runner\_work\expenses-employee-invitation-a ...
++   ~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (-OutputPath:String) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+Error: Process completed with exit code 1.
 
+---------------------------
 
+param (
+    [string]$Action,
+    [string]$DacpacPath,
+    [string]$PublishProfilePath = "",
+    [string]$ServerInstance,
+    [string]$DatabaseName,
+    [string]$UserName,
+    [string]$Password,
+    [string]$SqlPackagePath,
+    [string]$OutputPath = ""
+)
 
+$ErrorActionPreference = "Stop"
 
+Write-Host "Script started. Action: $Action"
 
------------------
+# Validate sqlpackage.exe
+if (-not (Test-Path $SqlPackagePath)) {
+    throw "sqlpackage.exe not found at: $SqlPackagePath"
+}
 
-jobs:
-  deploy:
-    runs-on: windows-latest
-    steps:
-      # Your existing steps...
-      
-      - name: Send sql-actions.ps1 to target server
-        uses: ./.github/actions/send-file-via-ssm  # Assuming you save the action here
-        with:
-          file-path: './od-gha-files/sql-actions.ps1'
-          instance-id: 'your-ec2-instance-id'
-          destination-path: 'C:\Temp'
-          
-      - name: Verify file on target server
-        shell: pwsh
-        run: |
-          $result = aws ssm send-command `
-            --instance-ids "your-ec2-instance-id" `
-            --document-name "AWS-RunPowerShellScript" `
-            --parameters "commands=[Test-Path 'C:\Temp\sql-actions.ps1'; Get-Item 'C:\Temp\sql-actions.ps1' | Select-Object -Property FullName,Length,LastWriteTime]" `
-            --output json
-          
-          $commandResult = $result | ConvertFrom-Json
-          $commandId = $commandResult.Command.CommandId
-          
-          # Wait a few seconds for command to complete
-          Start-Sleep -Seconds 5
-          
-          $output = aws ssm get-command-invocation `
-            --command-id $commandId `
-            --instance-id "your-ec2-instance-id" `
-            --output json | ConvertFrom-Json
-          
-          Write-Host "File verification output:"
-          Write-Host $output.StandardOutputContent
-          
-          if ($output.Status -ne 'Success') {
-            throw "File verification failed"
-          }
+# Ensure output folder exists
+if ($OutputPath -ne "") {
+    $folder = Split-Path -Path $OutputPath -Parent
+    if (-not (Test-Path $folder)) {
+        Write-Host "Creating output directory: $folder"
+        New-Item -Path $folder -ItemType Directory -Force | Out-Null
+    }
+}
 
-----------------
+# Build connection string
+$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
 
-Error parsing parameter '--parameters': Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
-JSON received: {commands:[Get-ChildItem -Path "C:\\Temp\\EmployeeInvitation" | Select-Object Name,Length,LastWriteTime | ConvertTo-Json -Compress]}
-usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
-To see help text, you can run:
-  aws help
-  aws <command> help
-  aws <command> <subcommand> help
-aws.exe: error: argument --command-id: expected one argument
-Files in C:\Temp\EmployeeInvitation:
-Error checking files:
+# Initialize params
+$params = @()
+
+switch ($Action.ToLower()) {
+    "extract" {
+        if (-not $OutputPath) { throw "OutputPath is required for Extract" }
+        $params = @(
+            "/Action:Extract",
+            "/TargetFile:$OutputPath",
+            "/SourceConnectionString:$ConnectionString"
+        )
+    }
+    "deployreport" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
+        $params = @(
+            "/Action:DeployReport",
+            "/SourceFile:$DacpacPath",
+            "/TargetConnectionString:$ConnectionString",
+            "/OutputPath:$OutputPath"
+        )
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    }
+    "script" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
+        $params = @(
+            "/Action:Script",
+            "/SourceFile:$DacpacPath",
+            "/TargetConnectionString:$ConnectionString",
+            "/OutputPath:$OutputPath"
+        )
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    }
+    "publish" {
+        if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
+        $params = @(
+            "/Action:Publish",
+            "/SourceFile:$DacpacPath",
+            "/TargetConnectionString:$ConnectionString"
+        )
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    }
+    default { throw "Unsupported Action: $Action" }
+}
+
+# Execute
+Write-Host "Running sqlpackage with: $params"
+& $SqlPackagePath $params
+
+if ($LASTEXITCODE -ne 0) {
+    throw "sqlpackage failed with exit code $LASTEXITCODE"
+}
+Write-Host "Completed successfully"
