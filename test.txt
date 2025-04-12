@@ -1,22 +1,31 @@
-- name: 🧪 DeployReport DACPAC
-  shell: powershell
-  run: |
-    # Retrieve password securely
-    $retrievedPassword = & aws ssm get-parameter --name $env:SQL_PASSWORD_PARAMETER_STORE --with-decryption --query "Parameter.Value" --output text
+# compare-deploy-report.ps1
 
-    # Build script path
-    $scriptPath = "${{ github.workspace }}\od-gha-files\sqlpackage-runner-fixed.ps1"
+# This is the expected "no change" report content
+$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
 
-    # Run deploy report action
-    & $scriptPath `
-      -Action "DeployReport" `
-      -DacpacPath "${{ github.workspace }}\dacpacs\DBA-extracted.dacpac" `
-      -OutputPath "${{ github.workspace }}\dacpacs\DBA.xml" `
-      -ServerInstance "${{ env.DB_SERVER_NAME }}" `
-      -DatabaseName "DBA" `
-      -UserName "${{ env.SQL_USER_NAME }}" `
-      -Password "$retrievedPassword" `
-      -SqlPackagePath "${{ env.SQLPACKAGE_DIR }}\sqlpackage.exe"
+# Path to the actual deploy report (passed as argument or hardcoded)
+param(
+    [string]$DeployReportPath = "./deployreport.xml"
+)
+
+# Check if file exists
+if (-not (Test-Path $DeployReportPath)) {
+    Write-Output "❌ ERROR: Deploy report file not found at: $DeployReportPath"
+    exit 1
+}
+
+# Read the deploy report content
+$deployReportContent = Get-Content $DeployReportPath -Raw
+
+# Compare with baseline
+if ($deployReportContent -eq $NoChangesReport) {
+    Write-Output "✅ No change detected in database. Deploy report matches baseline."
+    exit 0
+} else {
+    Write-Output "⚠️ Change detected in database! Deploy report differs from baseline."
+    exit 1
+}
+
 
 
 
