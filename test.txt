@@ -1,23 +1,26 @@
-# compare-deploy-report.ps1
+- name: Detect the changes
+  shell: powershell
+  run: |
+    $scriptPath = "${{ github.workspace }}\od-gha-files\compare-script.ps1"
+    $reportPath = "${{ github.workspace }}\dacpacs\Database.xml"
 
-# This is the expected "no change" report content
-$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
+    powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $reportPath
 
-# Path to the actual deploy report (passed as argument or hardcoded)
+
 param(
-    [string]$DeployReportPath = "./deployreport.xml"
+    [Parameter(Mandatory = $true)]
+    [string]$DeployReportPath
 )
 
-# Check if file exists
+$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
+
 if (-not (Test-Path $DeployReportPath)) {
     Write-Output "❌ ERROR: Deploy report file not found at: $DeployReportPath"
     exit 1
 }
 
-# Read the deploy report content
 $deployReportContent = Get-Content $DeployReportPath -Raw
 
-# Compare with baseline
 if ($deployReportContent -eq $NoChangesReport) {
     Write-Output "✅ No change detected in database. Deploy report matches baseline."
     exit 0
@@ -25,6 +28,7 @@ if ($deployReportContent -eq $NoChangesReport) {
     Write-Output "⚠️ Change detected in database! Deploy report differs from baseline."
     exit 1
 }
+
 
 
 
