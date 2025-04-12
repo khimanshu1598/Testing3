@@ -15,21 +15,26 @@ param(
 $NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
 
 if (-not (Test-Path $DeployReportPath)) {
-    Write-Output "❌ ERROR: Deploy report file not found at: $DeployReportPath"
+    Write-Output "ERROR: Deploy report file not found at: $DeployReportPath"
     exit 1
 }
 
 $deployReportContent = Get-Content $DeployReportPath -Raw
 
 if ($deployReportContent -eq $NoChangesReport) {
-    Write-Output "✅ No change detected in database. Deploy report matches baseline."
+    Write-Output "No change detected in database. Deploy report matches baseline."
     exit 0
 } else {
-    Write-Output "⚠️ Change detected in database! Deploy report differs from baseline."
+    Write-Output "Change detected in database! Deploy report differs from baseline."
     exit 1
 }
 
-
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Change detected in database! Deploy report differs from baseline.
+Error: Process completed with exit code 1.
 
 
 
