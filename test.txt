@@ -1,13 +1,3 @@
-kumar.himanshu@LM-D9NL7R33VG expenses-employee-invitation-api % git log --pretty=format:"%h | %an | %ad | %s" --date=short
-bdecf88 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-f4d66cc | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-c9ab650 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-359da03 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-890e03d | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-e58cd04 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-d8a0736 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-352b714 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-2d54bcd | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-6391de2 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-e935948 | kumar.himanshu | 2025-04-25 | [PIP-1891] Himanshu - Refactored the code and testing the DACPAC Deployment
-95a174d | tusharkantilal-varma_xero | 2025-04-24 | [PIP-1891]Test Commit
+SQL_PACKAGE_DEPLOY_PROPERTIES - {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
+
+SQL_PACKAGE_PARAMETERS - No value
