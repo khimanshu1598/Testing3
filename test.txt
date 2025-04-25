@@ -1,71 +1,3 @@
-- name: Detect the changes
-  shell: powershell
-  run: |
-    $scriptPath = "${{ github.workspace }}\od-gha-files\compare-script.ps1"
-    $reportPath = "${{ github.workspace }}\dacpacs\Database.xml"
-
-    powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $reportPath
-
-
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$DeployReportPath
-)
-
-$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
-
-if (-not (Test-Path $DeployReportPath)) {
-    Write-Output "ERROR: Deploy report file not found at: $DeployReportPath"
-    exit 1
-}
-
-$deployReportContent = Get-Content $DeployReportPath -Raw
-
-if ($deployReportContent -eq $NoChangesReport) {
-    Write-Output "No change detected in database. Deploy report matches baseline."
-    exit 0
-} else {
-    Write-Output "Change detected in database! Deploy report differs from baseline."
-    exit 1
-}
-
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Change detected in database! Deploy report differs from baseline.
-Error: Process completed with exit code 1.
-
-
-
------------------------
-
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Script started. Action: DeployReport
-Test-Path : Cannot bind argument to parameter 'Path' because it is an empty string.
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:18 char:21
-+ if (-not (Test-Path $SqlPackagePath)) {
-+                     ~~~~~~~~~~~~~~~
-    + CategoryInfo          : InvalidData: (:) [Test-Path], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,Microsoft.PowerShell.Commands.Test 
-   PathCommand
- 
--OutputPath : The term '-OutputPath' is not recognized as the name of a cmdlet, function, script file, or operable 
-program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
-At C:\actions-runner\_work\_temp\0e4fcb8d-0c85-4be8-a05f-49f36bdfd579.ps1:6 char:3
-+   -OutputPath "C:\actions-runner\_work\expenses-employee-invitation-a ...
-+   ~~~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (-OutputPath:String) [], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : CommandNotFoundException
- 
-Error: Process completed with exit code 1.
-
----------------------------
-
 param (
     [string]$Action,
     [string]$DacpacPath,
@@ -75,7 +7,11 @@ param (
     [string]$UserName,
     [string]$Password,
     [string]$SqlPackagePath,
-    [string]$OutputPath = ""
+    [string]$OutputPath = "",
+    [string]$UseMultiSubnetFailover,
+    [string]$SQLPackageDeployProperties,
+    [string]$SQLCmdVariables = "",
+    [string]$SQLPackageParameters = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,8 +32,11 @@ if ($OutputPath -ne "") {
     }
 }
 
+
 # Build connection string
 $ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
+
+if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
 
 # Initialize params
 $params = @()
@@ -108,7 +47,8 @@ switch ($Action.ToLower()) {
         $params = @(
             "/Action:Extract",
             "/TargetFile:$OutputPath",
-            "/SourceConnectionString:$ConnectionString"
+            "/SourceConnectionString:$ConnectionString",
+            "/p:$SQLPackageDeployProperties"
         )
     }
     "deployreport" {
@@ -120,7 +60,19 @@ switch ($Action.ToLower()) {
             "/OutputPath:$OutputPath"
         )
         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+
+        Convert the JSON string to a PowerShell object
+        if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
+        $params += "/v:$SQLCmdVariables"
     }
+
+        if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
+        $params += "/v:$SQLPackageParameters"
+    }
+    if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
+        $params += "/p:$SQLPackageDeployProperties"
+    }
+    }   
     "script" {
         if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
         $params = @(
@@ -130,6 +82,16 @@ switch ($Action.ToLower()) {
             "/OutputPath:$OutputPath"
         )
         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+        if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
+        $params += "/v:$SQLCmdVariables"
+    }
+
+        if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
+        $params += "/v:$SQLPackageParameters"
+    }
+    if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
+        $params += "/p:$SQLPackageDeployProperties"
+    }
     }
     "publish" {
         if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
@@ -139,15 +101,76 @@ switch ($Action.ToLower()) {
             "/TargetConnectionString:$ConnectionString"
         )
         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    #     if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
+    #     $params += "/v:$SQLCmdVariables"
+    # }
+
+        if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
+            foreach ($pair in $SQLCmdVariables -split ',') {
+                $kv = $pair -split '='
+                
+                if ($kv.Count -eq 2) {
+                    $key = $kv[0].Trim()
+                    $value = $kv[1].Trim()
+                    $params += "/v:$key=$value "
+                }
+            }
+        }
+
+        if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
+            foreach ($pair in $SQLPackageParameters -split ',') {
+                $kv = $pair -split '='
+                
+                if ($kv.Count -eq 2) {
+                    $key = $kv[0].Trim()
+                    $value = $kv[1].Trim()
+                    $params += "/v:$key=$value "
+                }
+            }
+        }
+
+    #     if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
+    #     $params += "/v:$SQLPackageParameters"
+    # }
+    if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
+        $params += "/p:$SQLPackageDeployProperties"
+    }
+
     }
     default { throw "Unsupported Action: $Action" }
 }
 
 # Execute
 Write-Host "Running sqlpackage with: $params"
-& $SqlPackagePath $params
+# Retry logic
+$maxRetries = 3
+$retryDelaySeconds = 5
+$attempt = 1
+$success = $false
 
-if ($LASTEXITCODE -ne 0) {
-    throw "sqlpackage failed with exit code $LASTEXITCODE"
+while ($attempt -le $maxRetries -and -not $success) {
+    Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
+
+    try {
+        & $SqlPackagePath $params
+
+        if ($LASTEXITCODE -eq 0) {
+            $success = $true
+            Write-Host "sqlpackage executed successfully on attempt $attempt"
+        } else {
+            throw "sqlpackage failed with exit code $LASTEXITCODE"
+        }
+    } catch {
+        Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
+        if ($attempt -lt $maxRetries) {
+            Write-Host "Retrying in $retryDelaySeconds seconds..."
+            Start-Sleep -Seconds $retryDelaySeconds
+        } else {
+            throw "sqlpackage failed after $maxRetries attempts."
+        }
+    }
+
+    $attempt++
 }
+
 Write-Host "Completed successfully"
