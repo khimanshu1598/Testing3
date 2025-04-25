@@ -1,74 +1,9 @@
-function Format-SqlCmdVariables {
-    param([hashtable]$SqlCmdVariables)
-    $formatted = ""
-    foreach ($kv in $SqlCmdVariables.GetEnumerator()) {
-        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
-    }
-    return $formatted
+# ✅ Validate that FileName is provided
+if ([string]::IsNullOrWhiteSpace($env:FileName)) {
+    throw "❌ FileName input is missing. It is required to build OutputPath."
 }
 
-function Format-SqlPackageParameters {
-    param([hashtable]$Parameters)
-    $formatted = ""
-    foreach ($kv in $Parameters.GetEnumerator()) {
-        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
-    }
-    return $formatted
-}
-
-function Format-SqlPackageProperties {
-    param([hashtable]$Properties)
-    $formatted = ""
-    foreach ($kv in $Properties.GetEnumerator()) {
-        $formatted += "/p:`"$($kv.Key)=$($kv.Value)`" "
-    }
-    return $formatted
-}
-
-function New-SqlPackageCommand {
-    <#
-        .DESCRIPTION
-        Builds a SQL Package command to be invoked, based on the Action chosen.
-    #>
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true)][ValidateSet('Script', 'DeployReport', 'Extract', 'Publish')] [string] $Action,
-        [Parameter(Mandatory = $true)][string] $DacpacFilePath,
-        [Parameter(Mandatory = $true)][string] $PublishProfileFilePath,
-        [string] $OutputFilePath,
-        [hashtable] $SqlCmdVariables = @{},
-        [hashtable] $SqlPackageParameters = @{},
-        [hashtable] $SqlPackageProperties = @{},
-        [string] $ConnectionString = ''
-    )
-
-    trap { throw $_ }
-
-    $cmd = ""
-    $cmd += "/Action:`"$Action`" "
-    $cmd += "/Profile:`"$PublishProfileFilePath`" "
-    $cmd += Format-SqlCmdVariables -SqlCmdVariables $SqlCmdVariables
-    $cmd += Format-SqlPackageParameters -Parameters $SqlPackageParameters
-    $cmd += Format-SqlPackageProperties -Properties $SqlPackageProperties
-
-    $dacpacFilePathSwitch = "/SourceFile:`"$DacpacFilePath`" "
-    if ($Action -eq 'Extract') {
-        $dacpacFilePathSwitch = "/TargetFile:`"$DacpacFilePath`" "
-    }
-    $cmd += $dacpacFilePathSwitch
-
-    if (![string]::IsNullOrEmpty($ConnectionString)) {
-        $customConnectionString = if ($Action -eq 'Extract') {
-            "/SourceConnectionString:`"$ConnectionString`""
-        } else {
-            "/TargetConnectionString:`"$ConnectionString`""
-        }
-        $cmd += "$customConnectionString "
-    }
-
-    if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and ![string]::IsNullOrEmpty($OutputFilePath)) {
-        $cmd += "/OutputPath:`"$OutputPath`" "
-    }
-
-    return $cmd.Trim()
+# ✅ Validate that MATRIX_INSTANCE_LIST is provided
+if ([string]::IsNullOrWhiteSpace($env:MATRIX_INSTANCE_LIST)) {
+    throw "❌ MATRIX_INSTANCE_LIST is empty or missing. Cannot proceed with DACPAC deployment."
 }
