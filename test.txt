@@ -1,290 +1,74 @@
-# param (
-#     [string]$Action,
-#     [string]$DacpacPath,
-#     [string]$PublishProfilePath = "",
-#     [string]$ServerInstance,
-#     [string]$DatabaseName,
-#     [string]$UserName,
-#     [string]$Password,
-#     [string]$SqlPackagePath,
-#     [string]$OutputPath = "",
-#     [string]$UseMultiSubnetFailover,
-#     [string]$SQLPackageDeployProperties,
-#     [string]$SQLCmdVariables = "",
-#     [string]$SQLPackageParameters = ""
-# )
-
-# $ErrorActionPreference = "Stop"
-
-# Write-Host "Script started. Action: $Action"
-
-# # Validate sqlpackage.exe
-# if (-not (Test-Path $SqlPackagePath)) {
-#     throw "sqlpackage.exe not found at: $SqlPackagePath"
-# }
-
-# # Ensure output folder exists
-# if ($OutputPath -ne "") {
-#     $folder = Split-Path -Path $OutputPath -Parent
-#     if (-not (Test-Path $folder)) {
-#         Write-Host "Creating output directory: $folder"
-#         New-Item -Path $folder -ItemType Directory -Force | Out-Null
-#     }
-# }
-
-
-# # Build connection string
-# $ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
-
-# if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
-
-# # Initialize params
-# $params = @()
-
-# switch ($Action.ToLower()) {
-#     "extract" {
-#         if (-not $OutputPath) { throw "OutputPath is required for Extract" }
-#         $params = @(
-#             "/Action:Extract",
-#             "/TargetFile:$OutputPath",
-#             "/SourceConnectionString:$ConnectionString",
-#             "/p:$SQLPackageDeployProperties"
-#         )
-#     }
-#     "deployreport" {
-#         if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
-#         $params = @(
-#             "/Action:DeployReport",
-#             "/SourceFile:$DacpacPath",
-#             "/TargetConnectionString:$ConnectionString",
-#             "/OutputPath:$OutputPath"
-#         )
-#         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-
-#         Convert the JSON string to a PowerShell object
-#         if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
-#         $params += "/v:$SQLCmdVariables"
-#     }
-
-#         if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
-#         $params += "/v:$SQLPackageParameters"
-#     }
-#     if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
-#         $params += "/p:$SQLPackageDeployProperties"
-#     }
-#     }   
-#     "script" {
-#         if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
-#         $params = @(
-#             "/Action:Script",
-#             "/SourceFile:$DacpacPath",
-#             "/TargetConnectionString:$ConnectionString",
-#             "/OutputPath:$OutputPath"
-#         )
-#         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-#         if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
-#         $params += "/v:$SQLCmdVariables"
-#     }
-
-#         if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
-#         $params += "/v:$SQLPackageParameters"
-#     }
-#     if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
-#         $params += "/p:$SQLPackageDeployProperties"
-#     }
-#     }
-#     "publish" {
-#         if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
-#         $params = @(
-#             "/Action:Publish",
-#             "/SourceFile:$DacpacPath",
-#             "/TargetConnectionString:$ConnectionString"
-#         )
-#         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-#     #     if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
-#     #     $params += "/v:$SQLCmdVariables"
-#     # }
-
-#         if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
-#             foreach ($pair in $SQLCmdVariables -split ',') {
-#                 $kv = $pair -split '='
-                
-#                 if ($kv.Count -eq 2) {
-#                     $key = $kv[0].Trim()
-#                     $value = $kv[1].Trim()
-#                     $params += "/v:$key=$value "
-#                 }
-#             }
-#         }
-
-#         if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
-#             foreach ($pair in $SQLPackageParameters -split ',') {
-#                 $kv = $pair -split '='
-                
-#                 if ($kv.Count -eq 2) {
-#                     $key = $kv[0].Trim()
-#                     $value = $kv[1].Trim()
-#                     $params += "/v:$key=$value "
-#                 }
-#             }
-#         }
-
-#     #     if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
-#     #     $params += "/v:$SQLPackageParameters"
-#     # }
-#     if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
-#         $params += "/p:$SQLPackageDeployProperties"
-#     }
-
-#     }
-#     default { throw "Unsupported Action: $Action" }
-# }
-
-# # Execute
-# Write-Host "Running sqlpackage with: $params"
-# # Retry logic
-# $maxRetries = 3
-# $retryDelaySeconds = 5
-# $attempt = 1
-# $success = $false
-
-# while ($attempt -le $maxRetries -and -not $success) {
-#     Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
-
-#     try {
-#         & $SqlPackagePath $params
-
-#         if ($LASTEXITCODE -eq 0) {
-#             $success = $true
-#             Write-Host "sqlpackage executed successfully on attempt $attempt"
-#         } else {
-#             throw "sqlpackage failed with exit code $LASTEXITCODE"
-#         }
-#     } catch {
-#         Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
-#         if ($attempt -lt $maxRetries) {
-#             Write-Host "Retrying in $retryDelaySeconds seconds..."
-#             Start-Sleep -Seconds $retryDelaySeconds
-#         } else {
-#             throw "sqlpackage failed after $maxRetries attempts."
-#         }
-#     }
-
-#     $attempt++
-# }
-
-# Write-Host "Completed successfully"
-
-################ DO NOT REMOVE THE ABOVE CODE ##########################
-
-param (
-    [string]$Action,
-    [string]$DacpacPath,
-    [string]$PublishProfilePath = "",
-    [string]$ServerInstance,
-    [string]$DatabaseName,
-    [string]$UserName,
-    [string]$Password,
-    [string]$SqlPackagePath,
-    [string]$OutputPath = "",
-    [string]$UseMultiSubnetFailover,
-    [string]$SQLPackageDeployProperties = "",
-    [string]$SQLCmdVariables = "",
-    [string]$SQLPackageParameters = ""
-)
-
-$ErrorActionPreference = "Stop"
-Write-Host "Script started. Action: $Action"
-
-# Import custom module
-$ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$ModulePath = Join-Path $ScriptDir "modules\SqlPackageHelper.psm1"
-Import-Module $ModulePath -Force
-Write-Host "Imported SqlPackageHelper module from $ModulePath"
-
-# Validate sqlpackage.exe
-if (-not (Test-Path $SqlPackagePath)) {
-    throw "sqlpackage.exe not found at: $SqlPackagePath"
-}
-
-# Ensure output folder exists
-if ($OutputPath -ne "") {
-    $folder = Split-Path -Path $OutputPath -Parent
-    if (-not (Test-Path $folder)) {
-        Write-Host "Creating output directory: $folder"
-        New-Item -Path $folder -ItemType Directory -Force | Out-Null
+function Format-SqlCmdVariables {
+    param([hashtable]$SqlCmdVariables)
+    $formatted = ""
+    foreach ($kv in $SqlCmdVariables.GetEnumerator()) {
+        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
     }
+    return $formatted
 }
 
-# Build connection string
-$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
-if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
-
-# Helper to convert comma-separated string to hashtable
-function ConvertTo-HashtableFromString {
-    param([string]$input)
-    $hash = @{}
-    if (![string]::IsNullOrWhiteSpace($input)) {
-        foreach ($pair in $input -split ',') {
-            $kv = $pair -split '='
-            if ($kv.Count -eq 2) {
-                $hash[$kv[0].Trim()] = $kv[1].Trim()
-            }
-        }
+function Format-SqlPackageParameters {
+    param([hashtable]$Parameters)
+    $formatted = ""
+    foreach ($kv in $Parameters.GetEnumerator()) {
+        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
     }
-    return $hash
+    return $formatted
 }
 
-$sqlCmdVariableCollection = ConvertTo-HashtableFromString -input $SQLCmdVariables
-$sqlPackagePropertyCollection = ConvertTo-HashtableFromString -input $SQLPackageDeployProperties
-$sqlPackageParameterCollection = ConvertTo-HashtableFromString -input $SQLPackageParameters
+function Format-SqlPackageProperties {
+    param([hashtable]$Properties)
+    $formatted = ""
+    foreach ($kv in $Properties.GetEnumerator()) {
+        $formatted += "/p:`"$($kv.Key)=$($kv.Value)`" "
+    }
+    return $formatted
+}
 
-# Generate SQLPackage command
-$sqlPackageCommand = New-SqlPackageCommand -Action $Action `
-    -DacpacFilePath $DacpacPath `
-    -PublishProfileFilePath $PublishProfilePath `
-    -OutputFilePath $OutputPath `
-    -SqlCmdVariables $sqlCmdVariableCollection `
-    -SqlPackageProperties $sqlPackagePropertyCollection `
-    -SqlPackageParameters $sqlPackageParameterCollection `
-    -ConnectionString $ConnectionString
+function New-SqlPackageCommand {
+    <#
+        .DESCRIPTION
+        Builds a SQL Package command to be invoked, based on the Action chosen.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)][ValidateSet('Script', 'DeployReport', 'Extract', 'Publish')] [string] $Action,
+        [Parameter(Mandatory = $true)][string] $DacpacFilePath,
+        [Parameter(Mandatory = $true)][string] $PublishProfileFilePath,
+        [string] $OutputFilePath,
+        [hashtable] $SqlCmdVariables = @{},
+        [hashtable] $SqlPackageParameters = @{},
+        [hashtable] $SqlPackageProperties = @{},
+        [string] $ConnectionString = ''
+    )
 
-$fullCommand = "& `"$SqlPackagePath`" $sqlPackageCommand"
-Write-Host "Executing full sqlpackage.exe command: $fullCommand"
+    trap { throw $_ }
 
-# Retry logic
-$maxRetries = 3
-$retryDelaySeconds = 5
-$attempt = 1
-$success = $false
+    $cmd = ""
+    $cmd += "/Action:`"$Action`" "
+    $cmd += "/Profile:`"$PublishProfileFilePath`" "
+    $cmd += Format-SqlCmdVariables -SqlCmdVariables $SqlCmdVariables
+    $cmd += Format-SqlPackageParameters -Parameters $SqlPackageParameters
+    $cmd += Format-SqlPackageProperties -Properties $SqlPackageProperties
 
-while ($attempt -le $maxRetries -and -not $success) {
-    Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
+    $dacpacFilePathSwitch = "/SourceFile:`"$DacpacFilePath`" "
+    if ($Action -eq 'Extract') {
+        $dacpacFilePathSwitch = "/TargetFile:`"$DacpacFilePath`" "
+    }
+    $cmd += $dacpacFilePathSwitch
 
-    try {
-        Invoke-Expression $fullCommand
-
-        if ($LASTEXITCODE -eq 0) {
-            if ($Action -in @("DeployReport", "Script") -and -not (Test-Path $OutputPath)) {
-                throw "$Action succeeded but output file not found at: $OutputPath"
-            }
-
-            Write-Host "sqlpackage executed successfully on attempt $attempt"
-            $success = $true
+    if (![string]::IsNullOrEmpty($ConnectionString)) {
+        $customConnectionString = if ($Action -eq 'Extract') {
+            "/SourceConnectionString:`"$ConnectionString`""
         } else {
-            throw "sqlpackage failed with exit code $LASTEXITCODE"
+            "/TargetConnectionString:`"$ConnectionString`""
         }
-    } catch {
-        Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
-        if ($attempt -lt $maxRetries) {
-            Write-Host "Retrying in $retryDelaySeconds seconds..."
-            Start-Sleep -Seconds $retryDelaySeconds
-        } else {
-            throw "sqlpackage failed after $maxRetries attempts."
-        }
+        $cmd += "$customConnectionString "
     }
 
-    $attempt++
-}
+    if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and ![string]::IsNullOrEmpty($OutputFilePath)) {
+        $cmd += "/OutputPath:`"$OutputPath`" "
+    }
 
-Write-Host "Completed successfully"
+    return $cmd.Trim()
+}
