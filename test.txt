@@ -1,53 +1,3 @@
-  shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
-  env:
-    DACPAC_OUTPUT_DIR: C:\dacpac-extracts
-    SQLPACKAGE_DIR: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
-    SQL_PASSWORD_PARAMETER_STORE: EmployeeInvitationDB_SQL_Password
-    SQL_USER_NAME: HimanshuSuccessUser
-    OD_GHA_FILE_PATH: od-gha-files
-    AWS_REGION: us-west-2
-    DB_NAME: DBA
-    NUGET_PACKAGE_PATH: C:\abc\releases\databases\EmployeeInvitation
-    NUGET_CONTRIBUTORS_PACKAGE_PATH: C:\EmployeeInvitation\Contributors
-    TARGET_SERVERS: employeeinvitation.db.livestage6.test.abc.com.
-    ADD_ARTIFACTS_TO_RELEASE: true
-    PUBLISH_PROFILE_FILE_NAME: abc-uat.publish.xml
-    MULTI_SUBNET_FAILOVER: true
-    USE_CLUSTER_NAMES: false
-    SLACK_WEBHOOK_URL: ***
-    MATRIX_INSTANCE_LIST: { "instance":"i-047d18e12312412412","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
-    RELEASE_NUMBER: 485
-    DACPAC_ENVIRONMENT: testbox
-    ENVIRONMENT: test
-    SQL_PACKAGE_DEPLOY_PROPERTIES: {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
-    SQL_CMD_VARIABLES: {"DBversion":"#{Octopus.Release.Number}","Env":"test","variable3":"value3","variable4":"value4"}
-    SQL_PACKAGE_PARAMETERS:  
-    abc_RUNNER_DEPLOYTRACK_TOKEN: ***
-    ENV_NAME_EXTRACTED: test
-    AWS_DEFAULT_REGION: us-west-2
-    AWS_ACCESS_KEY_ID: ***
-    AWS_SECRET_ACCESS_KEY: ***
-    AWS_SESSION_TOKEN: ***
-    SQLPACKAGE_PATH: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
-    ROLE_LIST: "primary"
-    instancelist: "i-01e71fe45fe9b6a07"
-    DB_SERVER_NAME_LIST: "GSQN-76FZVN.uat.aws.abc.com"
-    commandId: c2017f76-12d8-424c-9844-13f0ecee9200
-    retrievedPassword: ***
-    scriptPath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-runner-fixed.ps1
-    outputPath: 
-    ArtifactDownloadPath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
-    DatabaseName: DBA
-    ReleaseNumber: 485
-    FileName: deployreport.xml
-    targetServer: employeeinvitation.db.livestage6.test.abc.com.
-    Action: DeployReport
-    PublishProfileFilePath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
-    GithubActor: kumar-himanshu_abc
-    SQLPackageDeployProperties: {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
-    SQLCMDVariables: 
-    SQLPackageParameters:  
-  
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
 Warning: JSON string is empty or null. Returning empty string.
@@ -55,10 +5,14 @@ Warning: JSON string is empty or null. Returning empty string.
 Wrapping single JSON object in an array...
 Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d18e12312412412","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
 Run the Action DeployReport to - Instance: i-047d18e12312412412, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
+
+
     Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
+
+
 Mode                LastWriteTime         Length Name                                                                  
 ----                -------------         ------ ----                                                                  
-d-----        4/25/2025   7:14 AM                deployreports                                                         
+d-----        4/25/2025   7:19 AM                deployreports                                                         
 Script started. Action: DeployReport
 Imported SqlPackageHelper module from C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\modules\SqlPackageHelper.psm1
 Executing full sqlpackage.exe command: & "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe" /Action:"DeployReport" /Profile:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml" /SourceFile:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac" /TargetConnectionString:"Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;" /OutputPath:""
