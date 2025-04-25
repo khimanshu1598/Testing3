@@ -1,3 +1,13 @@
-if (-not $params -or $params.Count -eq 0) {
-    Write-Warning "No parameters were built. Check the input values or switch block conditions."
+# Debug: Show number of built parameters
+Write-Host "DEBUG: Number of params: $($params.Count)"
+
+# Debug: Show each param (one per line)
+foreach ($param in $params) {
+    Write-Host "DEBUG PARAM: $param"
+}
+
+
+
+if (-not $fullParamString) {
+    throw "No parameters were built — please check that Action, DacpacPath, OutputPath, and other required values are passed correctly."
 }
