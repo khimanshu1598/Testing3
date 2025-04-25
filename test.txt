@@ -1,3 +1,124 @@
-SQL_PACKAGE_DEPLOY_PROPERTIES - {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
+# Refactored script with inline SQLPackage param handling
 
-SQL_PACKAGE_PARAMETERS - No value
+param (
+    [string]$Action,
+    [string]$DacpacPath,
+    [string]$PublishProfilePath = "",
+    [string]$ServerInstance,
+    [string]$DatabaseName,
+    [string]$UserName,
+    [string]$Password,
+    [string]$SqlPackagePath,
+    [string]$OutputPath = "",
+    [string]$UseMultiSubnetFailover,
+    [string]$SQLPackageDeployProperties,
+    [string]$SQLCmdVariables = "",
+    [string]$SQLPackageParameters = ""
+)
+
+$ErrorActionPreference = "Stop"
+Write-Host "Script started. Action: $Action"
+
+if (-not (Test-Path $SqlPackagePath)) {
+    throw "sqlpackage.exe not found at: $SqlPackagePath"
+}
+
+if ($OutputPath -ne "") {
+    $folder = Split-Path -Path $OutputPath -Parent
+    if (-not (Test-Path $folder)) {
+        Write-Host "Creating output directory: $folder"
+        New-Item -Path $folder -ItemType Directory -Force | Out-Null
+    }
+}
+
+$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
+if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
+
+$params = @()
+
+switch ($Action.ToLower()) {
+    "extract" {
+        if (-not $OutputPath) { throw "OutputPath is required for Extract" }
+        $params += "/Action:Extract", "/TargetFile:$OutputPath", "/SourceConnectionString:$ConnectionString"
+    }
+    "deployreport" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
+        $params += "/Action:DeployReport", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    }
+    "script" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
+        $params += "/Action:Script", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    }
+    "publish" {
+        if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
+        $params += "/Action:Publish", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString"
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+    }
+    default { throw "Unsupported Action: $Action" }
+}
+
+if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
+    try {
+        $vars = ConvertFrom-Json $SQLCmdVariables
+        foreach ($pair in $vars.PSObject.Properties) {
+            $params += "/v:$($pair.Name)=$($pair.Value)"
+        }
+    } catch {
+        Write-Warning "Failed to parse SQLCmdVariables as JSON. Ignoring."
+    }
+}
+
+if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
+    try {
+        $paramsData = ConvertFrom-Json $SQLPackageParameters
+        foreach ($pair in $paramsData.PSObject.Properties) {
+            $params += "/p:$($pair.Name)=$($pair.Value)"
+        }
+    } catch {
+        Write-Warning "Failed to parse SQLPackageParameters as JSON. Ignoring."
+    }
+}
+
+if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
+    try {
+        $props = ConvertFrom-Json $SQLPackageDeployProperties
+        foreach ($pair in $props.PSObject.Properties) {
+            $params += "/p:$($pair.Name)=$($pair.Value)"
+        }
+    } catch {
+        Write-Warning "Failed to parse SQLPackageDeployProperties as JSON. Ignoring."
+    }
+}
+
+Write-Host "Running sqlpackage with: $params"
+
+$maxRetries = 3
+$retryDelaySeconds = 5
+$attempt = 1
+$success = $false
+
+while ($attempt -le $maxRetries -and -not $success) {
+    Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
+    try {
+        & $SqlPackagePath $params
+        if ($LASTEXITCODE -eq 0) {
+            $success = $true
+            Write-Host "sqlpackage executed successfully on attempt $attempt"
+        } else {
+            throw "sqlpackage failed with exit code $LASTEXITCODE"
+        }
+    } catch {
+        Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
+        if ($attempt -lt $maxRetries) {
+            Write-Host "Retrying in $retryDelaySeconds seconds..."
+            Start-Sleep -Seconds $retryDelaySeconds
+        } else {
+            throw "sqlpackage failed after $maxRetries attempts."
+        }
+    }
+    $attempt++
+}
+
+Write-Host "Completed successfully"
