@@ -174,3 +174,27 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Completed successfully"
+
+
+==============
+
+- name: DeployReport DACPAC
+      id: deploy-report
+      uses: ./.github/actions/sql-dacpac-deployer
+      with:
+        Action: "DeployReport"
+        DacpacPath: "${{ github.workspace }}\\packages\\Employee.Invitation.Database.Build.dacpac"
+        DatabaseName: "${{ env.DB_NAME }}"
+        UserName: "${{ env.SQL_USER_NAME }}"
+        SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
+        sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
+        ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
+        ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
+        EnvironmentName: "${{ env.DACPAC_ENVIRONMENT }}"
+        FileName: "deployreport.xml"
+        TargetServer: ${{ env.TARGET_SERVERS }}
+        PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
+        UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
+        SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+        SQLCMDVariables: ""
+        SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
