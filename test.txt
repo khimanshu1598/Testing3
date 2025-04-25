@@ -1,105 +1,20 @@
-name: 'SQL dacpac action deployment using sqlpackage.exe'
-description: 'Using sqlpacakge.exe to perform SQL server DACPAC operations - Deployreport, script, extract & publish'
-
-inputs:
-  Action:
-    description: 'The action to have sqlpackage.exe execute. One of: extract, deployreport, script, publish'
-    required: true
-  DacpacPath:
-    description: '[Optional] The fully qualified path and file name of the DACPAC to publish.'
-    required: false
-  PublishProfilePath:
-    description: '[Optional] The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: false
-  DatabaseName:
-    description: 'The database name the DACPAC is being applied against'
-    required: true
-  UserName:
-    description: 'SQL username to be used for performing actions'
-    required: true
-  SqlPackagePath:
-    description: 'Path to sqlpackage.exe'
-    required: true
-  # OutputPath:
-  #   description: 'Path for the output to be saved'
-  #   required: true
-  sql-password-parameter-store:
-    description: 'Name of SQL password parameter store to fetch from'
-    required: true
-  ArtifactDownloadPath:
-    description: 'Path where the Artifacts will be stored'
-    required: true
-  ReleaseNumber:
-    description: 'Release Number of the build'
-    required: true
-  EnvironmentName:
-    description: 'The name of environment'
-    required: true
-  FileName:
-    description: 'The name of Output File'
-    required: true
-  TargetServer:
-    description: 'The host to deploy the DACPAC to'
-    required: true
-  PublishProfileFilePath:
-    description: 'The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: true
-  UseMultiSubnetFailover:
-    description: 'Add multisubnetfailover=true; to the connection string'
-    required: true
-  SQLPackageDeployProperties:
-    description: 'Collection of SQLPackage.exe Properties in JSON format eg {"PropertyName":"PropertyValue","PropertyTwoName":"PropertyTwoValue"}'
-    required: true
-  SQLCMDVariables:
-    description: 'Collection of SQLCMD Variables in JSON format eg {"VariableName":"VariableValue","VariableTwoName":"VariableTwoValue"}'
-    required: true
-  SQLPackageParameters:
-    description: 'Collection of SQLPackage.exe Parameters in JSON format eg {"ParameterName":"ParameterValue","ParameterTwoName":"ParameterTwoValue"}'
-    required: true
-  ServerInstance:
-    description: 'Passing the Server Name'
-    required: true
-
-runs:
-  using: composite
-  steps:
-  - name: Initialize OutPutPathFile
-    run: |
-      if (-not (Test-Path "$env:GITHUB_WORKSPACE\OutPutPath.txt")) {
-        New-Item "$env:GITHUB_WORKSPACE\OutPutPath.txt" -ItemType File -Force
-      }
-    shell: powershell
-
-  - name: Retrieve password & build script path
-    shell: powershell
-    run: |
-      # Retrieve password securely
-      $retrievedPassword = & aws ssm get-parameter --name ${{ inputs.sql-password-parameter-store }} --with-decryption --query "Parameter.Value" --output text
-      # Exporting to use in next step
-      "retrievedPassword=$retrievedPassword" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      # Build script path
-      $scriptPath = "${{ github.workspace }}\od-gha-files\sqlpackage-runner-fixed.ps1"
-      # Exporting to use in next step
-      "scriptPath=$scriptPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      "outputPath=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-  - name: Build Output path and Run the DACPAC Deployment script
-    id: run-dacpac-deployment
-    uses: ./.github/actions/run-dacpac-deployment
-    with:
-      ArtifactDownloadPath: '${{ inputs.ArtifactDownloadPath }}'
-      DatabaseName: '${{ inputs.DatabaseName }}'
-      ReleaseNumber: '${{ inputs.ReleaseNumber }}'
-      FileName: '${{ inputs.FileName }}'
-      targetServer: '${{ inputs.TargetServer }}' # optional, if used
-      ServerInstance: '${{ inputs.TargetServer }}'
-      Action: '${{ inputs.Action }}'
-      PublishProfileFilePath: '${{ inputs.PublishProfileFilePath }}'
-      GithubActor: '${{ github.actor }}'
-      SQLPackageDeployProperties: '${{ inputs.SQLPackageDeployProperties }}'
-      SQLCMDVariables: '${{ inputs.SQLCMDVariables }}'
-      SQLPackageParameters: '${{ inputs.SQLPackageParameters }}'
-      SqlPackagePath: '${{ inputs.SqlPackagePath }}'
-      DacpacPath: '${{ inputs.DacpacPath }}'
-      UserName: '${{ inputs.UserName }}'
+    - name: DeployReport DACPAC
+      id: deploy-report
+      uses: ./.github/actions/sql-dacpac-deployer
+      with:
+        Action: "DeployReport"
+        DacpacPath: "${{ github.workspace }}\\packages\\Employee.Invitation.Database.Build.dacpac"
+        DatabaseName: "${{ env.DB_NAME }}"
+        UserName: "${{ env.SQL_USER_NAME }}"
+        SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
+        sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
+        ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
+        ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
+        EnvironmentName: "${{ env.DACPAC_ENVIRONMENT }}"
+        FileName: "deployreport.xml"
+        TargetServer: ${{ env.TARGET_SERVERS }}
+        PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
+        UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
+        SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+        SQLCMDVariables: ""
+        SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
