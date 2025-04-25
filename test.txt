@@ -218,11 +218,13 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
-
-# Import the helper module
-Import-Module "C:\Path\To\SqlPackageHelper.psm1" -Force
-
 Write-Host "Script started. Action: $Action"
+
+# Import custom module
+$ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+$ModulePath = Join-Path $ScriptDir "modules\SqlPackageHelper.psm1"
+Import-Module $ModulePath -Force
+Write-Host "Imported SqlPackageHelper module from $ModulePath"
 
 # Validate sqlpackage.exe
 if (-not (Test-Path $SqlPackagePath)) {
@@ -242,7 +244,7 @@ if ($OutputPath -ne "") {
 $ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
 if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
 
-# Convert key=value strings to hashtables
+# Helper to convert comma-separated string to hashtable
 function ConvertTo-HashtableFromString {
     param([string]$input)
     $hash = @{}
@@ -261,24 +263,20 @@ $sqlCmdVariableCollection = ConvertTo-HashtableFromString -input $SQLCmdVariable
 $sqlPackagePropertyCollection = ConvertTo-HashtableFromString -input $SQLPackageDeployProperties
 $sqlPackageParameterCollection = ConvertTo-HashtableFromString -input $SQLPackageParameters
 
-# Create parameter object for New-SqlPackageCommand
-$sqlPackageParams = @{
-    Action = $Action
-    DacpacFilePath = $DacpacPath
-    PublishProfileFilePath = $PublishProfilePath
-    OutputFilePath = $OutputPath
-    SqlCmdVariables = $sqlCmdVariableCollection
-    SqlPackageProperties = $sqlPackagePropertyCollection
-    SqlPackageParameters = $sqlPackageParameterCollection
-    ConnectionString = $ConnectionString
-}
+# Generate SQLPackage command
+$sqlPackageCommand = New-SqlPackageCommand -Action $Action `
+    -DacpacFilePath $DacpacPath `
+    -PublishProfileFilePath $PublishProfilePath `
+    -OutputFilePath $OutputPath `
+    -SqlCmdVariables $sqlCmdVariableCollection `
+    -SqlPackageProperties $sqlPackagePropertyCollection `
+    -SqlPackageParameters $sqlPackageParameterCollection `
+    -ConnectionString $ConnectionString
 
-# Generate final argument list
-$sqlPackageCommand = New-SqlPackageCommand @sqlPackageParams
-$fullCommand = "& `"$SqlPackagePath`" $($sqlPackageCommand -join ' ')"
-Write-Output "Executing full sqlpackage.exe command: $fullCommand"
+$fullCommand = "& `"$SqlPackagePath`" $sqlPackageCommand"
+Write-Host "Executing full sqlpackage.exe command: $fullCommand"
 
-# Retry execution
+# Retry logic
 $maxRetries = 3
 $retryDelaySeconds = 5
 $attempt = 1
@@ -291,8 +289,12 @@ while ($attempt -le $maxRetries -and -not $success) {
         Invoke-Expression $fullCommand
 
         if ($LASTEXITCODE -eq 0) {
+            if ($Action -in @("DeployReport", "Script") -and -not (Test-Path $OutputPath)) {
+                throw "$Action succeeded but output file not found at: $OutputPath"
+            }
+
+            Write-Host "✅ sqlpackage executed successfully on attempt $attempt"
             $success = $true
-            Write-Host "sqlpackage executed successfully on attempt $attempt"
         } else {
             throw "sqlpackage failed with exit code $LASTEXITCODE"
         }
@@ -302,12 +304,86 @@ while ($attempt -le $maxRetries -and -not $success) {
             Write-Host "Retrying in $retryDelaySeconds seconds..."
             Start-Sleep -Seconds $retryDelaySeconds
         } else {
-            throw "sqlpackage failed after $maxRetries attempts."
+            throw "❌ sqlpackage failed after $maxRetries attempts."
         }
     }
 
     $attempt++
 }
 
-Write-Host "Completed successfully"
+Write-Host "🎉 Completed successfully"
 
+=======================
+
+function Format-SqlCmdVariables {
+    param([hashtable]$SqlCmdVariables)
+    $formatted = ""
+    foreach ($kv in $SqlCmdVariables.GetEnumerator()) {
+        $formatted += "/v:$($kv.Key)=$($kv.Value) "
+    }
+    return $formatted
+}
+
+function Format-SqlPackageParameters {
+    param([hashtable]$Parameters)
+    $formatted = ""
+    foreach ($kv in $Parameters.GetEnumerator()) {
+        $formatted += "/v:$($kv.Key)=$($kv.Value) "
+    }
+    return $formatted
+}
+
+function Format-SqlPackageProperties {
+    param([hashtable]$Properties)
+    $formatted = ""
+    foreach ($kv in $Properties.GetEnumerator()) {
+        $formatted += "/p:$($kv.Key)=$($kv.Value) "
+    }
+    return $formatted
+}
+
+function New-SqlPackageCommand {
+    <#
+        .DESCRIPTION
+        Builds a SQL Package command to be invoked, based on the Action chosen.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)][ValidateSet('Script', 'DeployReport', 'Extract', 'Publish')] [string] $Action,
+        [Parameter(Mandatory = $true)][string] $DacpacFilePath,
+        [Parameter(Mandatory = $true)][string] $PublishProfileFilePath,
+        [string] $OutputFilePath,
+        [hashtable] $SqlCmdVariables = @{},
+        [hashtable] $SqlPackageParameters = @{},
+        [hashtable] $SqlPackageProperties = @{},
+        [string] $ConnectionString = ''
+    )
+
+    trap { throw $_ }
+
+    $cmd = "/Action:$Action /Profile=`"$PublishProfileFilePath`" "
+    $cmd += Format-SqlCmdVariables -SqlCmdVariables $SqlCmdVariables
+    $cmd += Format-SqlPackageParameters -Parameters $SqlPackageParameters
+    $cmd += Format-SqlPackageProperties -Properties $SqlPackageProperties
+
+    $dacpacFilePathSwitch = "/SourceFile:`"$DacpacFilePath`" "
+    if ($Action -eq 'Extract') {
+        $dacpacFilePathSwitch = "/TargetFile:`"$DacpacFilePath`" "
+    }
+    $cmd += $dacpacFilePathSwitch
+
+    if (![string]::IsNullOrEmpty($ConnectionString)) {
+        $customConnectionString = if ($Action -eq 'Extract') {
+            "/SourceConnectionString:`"$ConnectionString`""
+        } else {
+            "/TargetConnectionString:`"$ConnectionString`""
+        }
+        $cmd += "$customConnectionString"
+    }
+
+    if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and ![string]::IsNullOrEmpty($OutputFilePath)) {
+        $cmd += "/OutputPath:`"$OutputFilePath`" "
+    }
+
+    return $cmd
+}
