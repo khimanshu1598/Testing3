@@ -1,26 +1,23 @@
-Run # Replace #{Octopus.Release.Number} with release number in SQLCMDVariables
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
 Warning: JSON string is empty or null. Returning empty string.
 Warning: JSON string is empty or null. Returning empty string.
 Wrapping single JSON object in an array...
-Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d18e2123124rweqr4e4","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
-Run the Action DeployReport to - Instance: i-047d18e2123124rweqr4e4, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
-
-
+Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d18e2e899594e4","dbServerName":"GSQN-MB48C2.uat.aws.xero.com","role":"primary"}
+Run the Action DeployReport to - Instance: i-047d18e2e899594e4, Role: primary, DB Server: GSQN-MB48C2.uat.aws.xero.com
     Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
-
-
 Mode                LastWriteTime         Length Name                                                                  
 ----                -------------         ------ ----                                                                  
-d-----        4/25/2025   8:04 AM                deployreports                                                         
+d-----        4/25/2025   8:08 AM                deployreports                                                         
+Resolved SqlPackagePath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe
 Script started. Action: DeployReport
 Imported SqlPackageHelper module from C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\modules\SqlPackageHelper.psm1
-Test-Path : Cannot bind argument to parameter 'Path' because it is an empty string.
+New-SqlPackageCommand : Cannot bind argument to parameter 'PublishProfileFilePath' because it is an empty string.
 At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:206 char:21
-+ if (-not (Test-Path $SqlPackagePath)) {
-+                     ~~~~~~~~~~~~~~~
-    + CategoryInfo          : InvalidData: (:) [Test-Path], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,Microsoft.PowerShell.Commands.Test 
-   PathCommand
+nner-fixed.ps1:246 char:29
++     -PublishProfileFilePath $PublishProfilePath `
++                             ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [New-SqlPackageCommand], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,New-SqlPackageCommand
+ 
+Error: Process completed with exit code 1.
