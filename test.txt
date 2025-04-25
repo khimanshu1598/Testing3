@@ -1,13 +1,36 @@
-# Debug: Show number of built parameters
-Write-Host "DEBUG: Number of params: $($params.Count)"
-
-# Debug: Show each param (one per line)
-foreach ($param in $params) {
-    Write-Host "DEBUG PARAM: $param"
-}
-
-
-
-if (-not $fullParamString) {
-    throw "No parameters were built — please check that Action, DacpacPath, OutputPath, and other required values are passed correctly."
-}
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Warning: JSON string is empty or null. Returning empty string.
+Warning: JSON string is empty or null. Returning empty string.
+Wrapping single JSON object in an array...
+Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d123f34124fw241234","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
+Run the Action DeployReport to - Instance: i-047d123f34124fw241234, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
+    Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
+Mode                LastWriteTime         Length Name                                                                  
+----                -------------         ------ ----                                                                  
+d-----        4/25/2025   2:01 PM                deployreports                                                         
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:286 char:41
++     throw "No parameters were built â€” please check that Action, Dac ...
++                                         ~~~~~~
+Unexpected token 'please' in expression or statement.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:290 char:52
++ Write-Host "Executing full sqlpackage.exe command: & "$SqlPackagePath ...
++                                                    ~
+The ampersand (&) character is not allowed. The & operator is reserved for future use; wrap an ampersand in double 
+quotation marks ("&") to pass it as part of a string.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:319 char:35
++ Write-Host "Completed successfully"
++                                   ~
+The string is missing the terminator: ".
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:285 char:28
++ if (-not $fullParamString) {
++                            ~
+Missing closing '}' in statement block or type definition.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : UnexpectedToken
+ 
+Error: Process completed with exit code 1.
