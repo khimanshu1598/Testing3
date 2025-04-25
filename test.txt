@@ -21,3 +21,5 @@ nner-fixed.ps1:285 char:13
 +             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : OperationStopped: (sqlpackage failed after 3 attempts.:String) [], RuntimeException
     + FullyQualifiedErrorId : sqlpackage failed after 3 attempts.
+ 
+Error: Process completed with exit code 1.
