@@ -1,101 +1,32 @@
-name: 'SQL dacpac action deployment using sqlpackage.exe'
-description: 'Using sqlpacakge.exe to perform SQL server DACPAC operations - Deployreport, script, extract & publish'
-
-inputs:
-  Action:
-    description: 'The action to have sqlpackage.exe execute. One of: extract, deployreport, script, publish'
-    required: true
-  DacpacPath:
-    description: '[Optional] The fully qualified path and file name of the DACPAC to publish.'
-    required: false
-  PublishProfilePath:
-    description: '[Optional] The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: false
-  DatabaseName:
-    description: 'The database name the DACPAC is being applied against'
-    required: true
-  UserName:
-    description: 'SQL username to be used for performing actions'
-    required: true
-  SqlPackagePath:
-    description: 'Path to sqlpackage.exe'
-    required: true
-  # OutputPath:
-  #   description: 'Path for the output to be saved'
-  #   required: true
-  sql-password-parameter-store:
-    description: 'Name of SQL password parameter store to fetch from'
-    required: true
-  ArtifactDownloadPath:
-    description: 'Path where the Artifacts will be stored'
-    required: true
-  ReleaseNumber:
-    description: 'Release Number of the build'
-    required: true
-  EnvironmentName:
-    description: 'The name of environment'
-    required: true
-  FileName:
-    description: 'The name of Output File'
-    required: true
-  TargetServer:
-    description: 'The host to deploy the DACPAC to'
-    required: true
-  PublishProfileFilePath:
-    description: 'The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: true
-  UseMultiSubnetFailover:
-    description: 'Add multisubnetfailover=true; to the connection string'
-    required: true
-  SQLPackageDeployProperties:
-    description: 'Collection of SQLPackage.exe Properties in JSON format eg {"PropertyName":"PropertyValue","PropertyTwoName":"PropertyTwoValue"}'
-    required: true
-  SQLCMDVariables:
-    description: 'Collection of SQLCMD Variables in JSON format eg {"VariableName":"VariableValue","VariableTwoName":"VariableTwoValue"}'
-    required: true
-  SQLPackageParameters:
-    description: 'Collection of SQLPackage.exe Parameters in JSON format eg {"ParameterName":"ParameterValue","ParameterTwoName":"ParameterTwoValue"}'
-    required: true
-
-runs:
-  using: composite
-  steps:
-  - name: Initialize OutPutPathFile
-    run: |
-      if (-not (Test-Path "$env:GITHUB_WORKSPACE\OutPutPath.txt")) {
-        New-Item "$env:GITHUB_WORKSPACE\OutPutPath.txt" -ItemType File -Force
-      }
-    shell: powershell
-
-  - name: Retrieve password & build script path
-    shell: powershell
-    run: |
-      # Retrieve password securely
-      $retrievedPassword = & aws ssm get-parameter --name ${{ inputs.sql-password-parameter-store }} --with-decryption --query "Parameter.Value" --output text
-      # Exporting to use in next step
-      "retrievedPassword=$retrievedPassword" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      # Build script path
-      $scriptPath = "${{ github.workspace }}\od-gha-files\sqlpackage-runner-fixed.ps1"
-      # Exporting to use in next step
-      "scriptPath=$scriptPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      "outputPath=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-  - name: Build Output path and Run the DACPAC Deployment script
-    id: run-dacpac-deployment
-    uses: ./.github/actions/run-dacpac-deployment
-    with:
-      ArtifactDownloadPath: '${{ inputs.ArtifactDownloadPath }}'
-      DatabaseName: '${{ inputs.DatabaseName }}'
-      ReleaseNumber: '${{ inputs.ReleaseNumber }}'
-      FileName: '${{ inputs.FileName }}'
-      targetServer: '${{ inputs.TargetServer }}' # optional, if used
-      Action: '${{ inputs.Action }}'
-      PublishProfileFilePath: '${{ inputs.PublishProfileFilePath }}'
-      GithubActor: '${{ github.actor }}'
-      SQLPackageDeployProperties: '${{ inputs.SQLPackageDeployProperties }}'
-      SQLCMDVariables: '${{ inputs.SQLCMDVariables }}'
-      SQLPackageParameters: '${{ inputs.SQLPackageParameters }}'
-      SqlPackagePath: '${{ inputs.SqlPackagePath }}'
-      DacpacPath: '${{ inputs.DacpacPath }}'
-      UserName: '${{ inputs.UserName }}'
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Warning: JSON string is empty or null. Returning empty string.
+Warning: JSON string is empty or null. Returning empty string.
+Wrapping single JSON object in an array...
+Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d18e2e8991243124","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
+Run the Action DeployReport to - Instance: i-047d18e2e8991243124, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
+    Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
+Mode                LastWriteTime         Length Name                                                                  
+----                -------------         ------ ----                                                                  
+d-----        4/25/2025   6:41 AM                deployreports                                                         
+Script started. Action: DeployReport
+Imported SqlPackageHelper module from C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\modules\SqlPackageHelper.psm1
+Executing full sqlpackage.exe command: & "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe" /Action:DeployReport /Profile="C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml" /SourceFile:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac" /TargetConnectionString:"Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;"/OutputPath:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml" 
+Attempt 1 of 3: Running sqlpackage.exe...
+*** Unrecognized command line argument 'Profile=C'.
+WARNING: sqlpackage failed on attempt 1: sqlpackage failed with exit code 1
+Retrying in 5 seconds...
+Attempt 2 of 3: Running sqlpackage.exe...
+*** Unrecognized command line argument 'Profile=C'.
+WARNING: sqlpackage failed on attempt 2: sqlpackage failed with exit code 1
+Retrying in 5 seconds...
+Attempt 3 of 3: Running sqlpackage.exe...
+*** Unrecognized command line argument 'Profile=C'.
+WARNING: sqlpackage failed on attempt 3: sqlpackage failed with exit code 1
+sqlpackage failed after 3 attempts.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:283 char:13
++             throw "sqlpackage failed after $maxRetries attempts."
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (sqlpackage failed after 3 attempts.:String) [], RuntimeException
+    + FullyQualifiedErrorId : sqlpackage failed after 3 attempts.
