@@ -2,7 +2,7 @@ function Format-SqlCmdVariables {
     param([hashtable]$SqlCmdVariables)
     $formatted = ""
     foreach ($kv in $SqlCmdVariables.GetEnumerator()) {
-        $formatted += "/v:$($kv.Key)=$($kv.Value) "
+        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
     }
     return $formatted
 }
@@ -11,7 +11,7 @@ function Format-SqlPackageParameters {
     param([hashtable]$Parameters)
     $formatted = ""
     foreach ($kv in $Parameters.GetEnumerator()) {
-        $formatted += "/v:$($kv.Key)=$($kv.Value) "
+        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
     }
     return $formatted
 }
@@ -20,7 +20,7 @@ function Format-SqlPackageProperties {
     param([hashtable]$Properties)
     $formatted = ""
     foreach ($kv in $Properties.GetEnumerator()) {
-        $formatted += "/p:$($kv.Key)=$($kv.Value) "
+        $formatted += "/p:`"$($kv.Key)=$($kv.Value)`" "
     }
     return $formatted
 }
@@ -44,7 +44,9 @@ function New-SqlPackageCommand {
 
     trap { throw $_ }
 
-    $cmd = "/Action:$Action /Profile=`"$PublishProfileFilePath`" "
+    $cmd = ""
+    $cmd += "/Action:`"$Action`" "
+    $cmd += "/Profile:`"$PublishProfileFilePath`" "
     $cmd += Format-SqlCmdVariables -SqlCmdVariables $SqlCmdVariables
     $cmd += Format-SqlPackageParameters -Parameters $SqlPackageParameters
     $cmd += Format-SqlPackageProperties -Properties $SqlPackageProperties
@@ -61,12 +63,12 @@ function New-SqlPackageCommand {
         } else {
             "/TargetConnectionString:`"$ConnectionString`""
         }
-        $cmd += "$customConnectionString"
+        $cmd += "$customConnectionString "
     }
 
     if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and ![string]::IsNullOrEmpty($OutputFilePath)) {
-        $cmd += "/OutputPath:`"$OutputFilePath`" "
+        $cmd += "/OutputPath:`"$OutputPath`" "
     }
 
-    return $cmd
+    return $cmd.Trim()
 }
