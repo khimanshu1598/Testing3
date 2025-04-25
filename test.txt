@@ -1,74 +1,83 @@
-function Format-SqlCmdVariables {
-    param([hashtable]$SqlCmdVariables)
-    $formatted = ""
-    foreach ($kv in $SqlCmdVariables.GetEnumerator()) {
-        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
-    }
-    return $formatted
-}
-
-function Format-SqlPackageParameters {
-    param([hashtable]$Parameters)
-    $formatted = ""
-    foreach ($kv in $Parameters.GetEnumerator()) {
-        $formatted += "/v:`"$($kv.Key)=$($kv.Value)`" "
-    }
-    return $formatted
-}
-
-function Format-SqlPackageProperties {
-    param([hashtable]$Properties)
-    $formatted = ""
-    foreach ($kv in $Properties.GetEnumerator()) {
-        $formatted += "/p:`"$($kv.Key)=$($kv.Value)`" "
-    }
-    return $formatted
-}
-
-function New-SqlPackageCommand {
-    <#
-        .DESCRIPTION
-        Builds a SQL Package command to be invoked, based on the Action chosen.
-    #>
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true)][ValidateSet('Script', 'DeployReport', 'Extract', 'Publish')] [string] $Action,
-        [Parameter(Mandatory = $true)][string] $DacpacFilePath,
-        [Parameter(Mandatory = $true)][string] $PublishProfileFilePath,
-        [string] $OutputFilePath,
-        [hashtable] $SqlCmdVariables = @{},
-        [hashtable] $SqlPackageParameters = @{},
-        [hashtable] $SqlPackageProperties = @{},
-        [string] $ConnectionString = ''
-    )
-
-    trap { throw $_ }
-
-    $cmd = ""
-    $cmd += "/Action:`"$Action`" "
-    $cmd += "/Profile:`"$PublishProfileFilePath`" "
-    $cmd += Format-SqlCmdVariables -SqlCmdVariables $SqlCmdVariables
-    $cmd += Format-SqlPackageParameters -Parameters $SqlPackageParameters
-    $cmd += Format-SqlPackageProperties -Properties $SqlPackageProperties
-
-    $dacpacFilePathSwitch = "/SourceFile:`"$DacpacFilePath`" "
-    if ($Action -eq 'Extract') {
-        $dacpacFilePathSwitch = "/TargetFile:`"$DacpacFilePath`" "
-    }
-    $cmd += $dacpacFilePathSwitch
-
-    if (![string]::IsNullOrEmpty($ConnectionString)) {
-        $customConnectionString = if ($Action -eq 'Extract') {
-            "/SourceConnectionString:`"$ConnectionString`""
-        } else {
-            "/TargetConnectionString:`"$ConnectionString`""
-        }
-        $cmd += "$customConnectionString "
-    }
-
-    if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and ![string]::IsNullOrEmpty($OutputFilePath)) {
-        $cmd += "/OutputPath:`"$OutputPath`" "
-    }
-
-    return $cmd.Trim()
-}
+  shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
+  env:
+    DACPAC_OUTPUT_DIR: C:\dacpac-extracts
+    SQLPACKAGE_DIR: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
+    SQL_PASSWORD_PARAMETER_STORE: EmployeeInvitationDB_SQL_Password
+    SQL_USER_NAME: HimanshuSuccessUser
+    OD_GHA_FILE_PATH: od-gha-files
+    AWS_REGION: us-west-2
+    DB_NAME: DBA
+    NUGET_PACKAGE_PATH: C:\abc\releases\databases\EmployeeInvitation
+    NUGET_CONTRIBUTORS_PACKAGE_PATH: C:\EmployeeInvitation\Contributors
+    TARGET_SERVERS: employeeinvitation.db.livestage6.test.abc.com.
+    ADD_ARTIFACTS_TO_RELEASE: true
+    PUBLISH_PROFILE_FILE_NAME: abc-uat.publish.xml
+    MULTI_SUBNET_FAILOVER: true
+    USE_CLUSTER_NAMES: false
+    SLACK_WEBHOOK_URL: ***
+    MATRIX_INSTANCE_LIST: { "instance":"i-047d1248e2e81231414","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
+    RELEASE_NUMBER: 485
+    DACPAC_ENVIRONMENT: testbox
+    ENVIRONMENT: test
+    SQL_PACKAGE_DEPLOY_PROPERTIES: {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
+    SQL_CMD_VARIABLES: {"DBversion":"#{Octopus.Release.Number}","Env":"test","variable3":"value3","variable4":"value4"}
+    SQL_PACKAGE_PARAMETERS:  
+    abc_RUNNER_DEPLOYTRACK_TOKEN: ***
+    ENV_NAME_EXTRACTED: test
+    AWS_DEFAULT_REGION: us-west-2
+    AWS_ACCESS_KEY_ID: ***
+    AWS_SECRET_ACCESS_KEY: ***
+    AWS_SESSION_TOKEN: ***
+    SQLPACKAGE_PATH: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage
+    ROLE_LIST: "primary"
+    instancelist: "i-01e71fe45fe9b6a07"
+    DB_SERVER_NAME_LIST: "GSQN-76FZVN.uat.aws.abc.com"
+    commandId: f63ae1b6-f76c-4a25-a2a9-a33d9da9363e
+    retrievedPassword: ***
+    scriptPath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-runner-fixed.ps1
+    outputPath: 
+    ArtifactDownloadPath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
+    DatabaseName: DBA
+    ReleaseNumber: 485
+    FileName: deployreport.xml
+    targetServer: employeeinvitation.db.livestage6.test.abc.com.
+    Action: DeployReport
+    PublishProfileFilePath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
+    GithubActor: kumar-himanshu_abc
+    SQLPackageDeployProperties: {"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
+    SQLCMDVariables: 
+    SQLPackageParameters:  
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Warning: JSON string is empty or null. Returning empty string.
+Warning: JSON string is empty or null. Returning empty string.
+Wrapping single JSON object in an array...
+Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d1248e2e81231414","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
+Run the Action DeployReport to - Instance: i-047d1248e2e81231414, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
+    Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
+Mode                LastWriteTime         Length Name                                                                  
+----                -------------         ------ ----                                                                  
+d-----        4/25/2025   6:50 AM                deployreports                                                         
+Script started. Action: DeployReport
+Imported SqlPackageHelper module from C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\modules\SqlPackageHelper.psm1
+Executing full sqlpackage.exe command: & "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe" /Action:"DeployReport" /Profile:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml" /SourceFile:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac" /TargetConnectionString:"Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;" /OutputPath:""
+Attempt 1 of 3: Running sqlpackage.exe...
+*** Argument 'OutputPath' has an invalid value: ''.
+WARNING: sqlpackage failed on attempt 1: sqlpackage failed with exit code 1
+Retrying in 5 seconds...
+Attempt 2 of 3: Running sqlpackage.exe...
+*** Argument 'OutputPath' has an invalid value: ''.
+WARNING: sqlpackage failed on attempt 2: sqlpackage failed with exit code 1
+Retrying in 5 seconds...
+Attempt 3 of 3: Running sqlpackage.exe...
+*** Argument 'OutputPath' has an invalid value: ''.
+WARNING: sqlpackage failed on attempt 3: sqlpackage failed with exit code 1
+sqlpackage failed after 3 attempts.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:283 char:13
++             throw "sqlpackage failed after $maxRetries attempts."
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (sqlpackage failed after 3 attempts.:String) [], RuntimeException
+    + FullyQualifiedErrorId : sqlpackage failed after 3 attempts.
+ 
+Error: Process completed with exit code 1.
