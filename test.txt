@@ -198,3 +198,116 @@ Write-Host "Completed successfully"
         SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
         SQLCMDVariables: ""
         SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
+
+=======================
+
+param (
+    [string]$Action,
+    [string]$DacpacPath,
+    [string]$PublishProfilePath = "",
+    [string]$ServerInstance,
+    [string]$DatabaseName,
+    [string]$UserName,
+    [string]$Password,
+    [string]$SqlPackagePath,
+    [string]$OutputPath = "",
+    [string]$UseMultiSubnetFailover,
+    [string]$SQLPackageDeployProperties = "",
+    [string]$SQLCmdVariables = "",
+    [string]$SQLPackageParameters = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+# Import the helper module
+Import-Module "C:\Path\To\SqlPackageHelper.psm1" -Force
+
+Write-Host "Script started. Action: $Action"
+
+# Validate sqlpackage.exe
+if (-not (Test-Path $SqlPackagePath)) {
+    throw "sqlpackage.exe not found at: $SqlPackagePath"
+}
+
+# Ensure output folder exists
+if ($OutputPath -ne "") {
+    $folder = Split-Path -Path $OutputPath -Parent
+    if (-not (Test-Path $folder)) {
+        Write-Host "Creating output directory: $folder"
+        New-Item -Path $folder -ItemType Directory -Force | Out-Null
+    }
+}
+
+# Build connection string
+$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
+if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
+
+# Convert key=value strings to hashtables
+function ConvertTo-HashtableFromString {
+    param([string]$input)
+    $hash = @{}
+    if (![string]::IsNullOrWhiteSpace($input)) {
+        foreach ($pair in $input -split ',') {
+            $kv = $pair -split '='
+            if ($kv.Count -eq 2) {
+                $hash[$kv[0].Trim()] = $kv[1].Trim()
+            }
+        }
+    }
+    return $hash
+}
+
+$sqlCmdVariableCollection = ConvertTo-HashtableFromString -input $SQLCmdVariables
+$sqlPackagePropertyCollection = ConvertTo-HashtableFromString -input $SQLPackageDeployProperties
+$sqlPackageParameterCollection = ConvertTo-HashtableFromString -input $SQLPackageParameters
+
+# Create parameter object for New-SqlPackageCommand
+$sqlPackageParams = @{
+    Action = $Action
+    DacpacFilePath = $DacpacPath
+    PublishProfileFilePath = $PublishProfilePath
+    OutputFilePath = $OutputPath
+    SqlCmdVariables = $sqlCmdVariableCollection
+    SqlPackageProperties = $sqlPackagePropertyCollection
+    SqlPackageParameters = $sqlPackageParameterCollection
+    ConnectionString = $ConnectionString
+}
+
+# Generate final argument list
+$sqlPackageCommand = New-SqlPackageCommand @sqlPackageParams
+$fullCommand = "& `"$SqlPackagePath`" $($sqlPackageCommand -join ' ')"
+Write-Output "Executing full sqlpackage.exe command: $fullCommand"
+
+# Retry execution
+$maxRetries = 3
+$retryDelaySeconds = 5
+$attempt = 1
+$success = $false
+
+while ($attempt -le $maxRetries -and -not $success) {
+    Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
+
+    try {
+        Invoke-Expression $fullCommand
+
+        if ($LASTEXITCODE -eq 0) {
+            $success = $true
+            Write-Host "sqlpackage executed successfully on attempt $attempt"
+        } else {
+            throw "sqlpackage failed with exit code $LASTEXITCODE"
+        }
+    } catch {
+        Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
+        if ($attempt -lt $maxRetries) {
+            Write-Host "Retrying in $retryDelaySeconds seconds..."
+            Start-Sleep -Seconds $retryDelaySeconds
+        } else {
+            throw "sqlpackage failed after $maxRetries attempts."
+        }
+    }
+
+    $attempt++
+}
+
+Write-Host "Completed successfully"
+
