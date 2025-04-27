@@ -207,3 +207,26 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Script completed successfully"
+
+########################
+
+Warning: JSON string is empty or null. Returning empty string.
+Warning: JSON string is empty or null. Returning empty string.
+Wrapping single JSON object in an array...
+Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d18e123124124124","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
+Run the Action DeployReport to - Instance: i-047d18e123124124124, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
+    Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
+Mode                LastWriteTime         Length Name                                                                  
+----                -------------         ------ ----                                                                  
+d-----        4/27/2025   1:39 PM                deployreports                                                         
+Script started. Action: DeployReport
+Test-Json : The term 'Test-Json' is not recognized as the name of a cmdlet, function, script file, or operable 
+program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:342 char:70
++ ... NullOrWhiteSpace($SQLPackageDeployProperties) -and (Test-Json $SQLPac ...
++                                                         ~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Test-Json:String) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+Error: Process completed with exit code 1.
