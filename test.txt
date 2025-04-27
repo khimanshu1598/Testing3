@@ -161,3 +161,7 @@ Write-Host "Completed successfully"
         $params += "/p:$SQLPackageDeployProperties"
     }
     } 
+
+
+{"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
+
