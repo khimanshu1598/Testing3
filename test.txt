@@ -1,8 +1,13 @@
-$fullParamString = $params -join ' '
+Script started. Action: DeployReport
+WARNING: Failed to parse SQLPackageDeployProperties as JSON. Ignoring.
+Running sqlpackage with: /Action:DeployReport /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-ABCD.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True; /OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
 
-if (-not $fullParamString) {
-    throw "No parameters were built - please check that Action, DacpacPath, OutputPath, and other required values are passed correctly."
-}
-
-Write-Host "Running sqlpackage with: $fullParamString"
-Write-Host "Executing full sqlpackage.exe command: & `"$SqlPackagePath`" $fullParamString"
+Executing full sqlpackage.exe command: & "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe" /Action:DeployReport /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-ABCD.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True; /OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
+Attempt 1 of 3: Running sqlpackage.exe...
+Generating report for database 'DBA' on server 'GSQN-ABCD.uat.aws.abc.com'.
+*** The following SqlCmd variables are not defined in the target scripts: DBVersion RedeployJobs Environment.
+*** The column DeployedBy on table [deployment].[Version] must be changed from NULL to NOT NULL. If the table contains data, the ALTER script may not work. To avoid this issue, you must add values to this column for all rows or mark it as allowing NULL values, or enable the generation of smart-defaults as a deployment option.
+Successfully generated report to file C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml.
+Time elapsed 0:00:08.85
+sqlpackage executed successfully on attempt 1
+Completed successfully
