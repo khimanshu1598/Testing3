@@ -97,21 +97,20 @@ if ($UseMultiSubnetFailover) {
     $ConnectionString += "multisubnetfailover=true;"
 }
 
-# --- Parse Inputs to Hashtables ---
+# --- Parse Inputs ---
 
 $null = $sqlCmdVariableCollection = @{}
 $null = $sqlPackageParameterCollection = @{}
 $null = $sqlPackagePropertyCollection = @{}
+$rawSqlPackageDeployProperty = ""
 
 # SQLCmdVariables
 if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
     try {
-        (ConvertFrom-Json $SQLCmdVariables).psobject.properties | ForEach-Object {
-            $sqlCmdVariableCollection[$_.Name] = $_.Value
-        }
+        $sqlCmdVariableCollection = ConvertFrom-Json $SQLCmdVariables
         Write-Host "Parsed SqlCmdVariables successfully."
     } catch {
-        Write-Warning "Failed to parse SqlCmdVariables. Input was not valid JSON. Skipping SqlCmdVariables."
+        Write-Warning "Failed to parse SqlCmdVariables. Skipping."
     }
 } else {
     Write-Host "SqlCmdVariables is empty."
@@ -120,37 +119,44 @@ if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
 # SQLPackageParameters
 if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
     try {
-        (ConvertFrom-Json $SQLPackageParameters).psobject.properties | ForEach-Object {
-            $sqlPackageParameterCollection[$_.Name] = $_.Value
-        }
+        $sqlPackageParameterCollection = ConvertFrom-Json $SQLPackageParameters
         Write-Host "Parsed SqlPackageParameters successfully."
     } catch {
-        Write-Warning "Failed to parse SQLPackageParameters. Input was not valid JSON. Skipping SqlPackageParameters."
+        Write-Warning "Failed to parse SQLPackageParameters. Skipping."
     }
 } else {
     Write-Host "SqlPackageParameters is empty."
 }
 
-# --- Build final sqlpackage.exe Parameter Array ---
+# SQLPackageDeployProperties
+if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
+    try {
+        $sqlPackagePropertyCollection = ConvertFrom-Json $SQLPackageDeployProperties
+        Write-Host "Parsed SQLPackageDeployProperties successfully."
+    } catch {
+        Write-Warning "Failed to parse SQLPackageDeployProperties. Falling back to raw string."
+        $rawSqlPackageDeployProperty = $SQLPackageDeployProperties
+    }
+} else {
+    Write-Host "SQLPackageDeployProperties is empty."
+}
+
+# --- Build the sqlpackage.exe Parameter Array ---
 
 $params = @()
 
-# Action
 $params += "/Action:$Action"
 
-# Profile
 if (![string]::IsNullOrWhiteSpace($PublishProfilePath)) {
     $params += "/Profile:$PublishProfilePath"
 }
 
-# SourceFile / TargetFile
 if ($Action -eq 'Extract') {
     $params += "/TargetFile:$DacpacPath"
 } else {
     $params += "/SourceFile:$DacpacPath"
 }
 
-# Connection String
 if (![string]::IsNullOrWhiteSpace($ConnectionString)) {
     if ($Action -eq 'Extract') {
         $params += "/SourceConnectionString:$ConnectionString"
@@ -159,33 +165,21 @@ if (![string]::IsNullOrWhiteSpace($ConnectionString)) {
     }
 }
 
-# OutputPath
 if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and (![string]::IsNullOrWhiteSpace($OutputPath))) {
     $params += "/OutputPath:$OutputPath"
 }
 
-# Add formatted /v: (variables)
+# Now add the parsed and formatted variables
 $params += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
-
-# Add formatted / (parameters)
+$params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
 $params += Format-SqlPackageParameters -Parameters $sqlPackageParameterCollection
 
-# Handle SQLPackageDeployProperties separately
-if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
-    try {
-        (ConvertFrom-Json $SQLPackageDeployProperties).psobject.properties | ForEach-Object {
-            $params += "/p:$($_.Name)=$($_.Value)"
-        }
-        Write-Host "Parsed SQLPackageDeployProperties successfully."
-    } catch {
-        Write-Warning "Failed to parse SQLPackageDeployProperties as JSON. Falling back to raw string."
-        $params += "/p:$SQLPackageDeployProperties"
-    }
-} else {
-    Write-Host "SQLPackageDeployProperties is empty."
+# If raw property fallback exists
+if (![string]::IsNullOrWhiteSpace($rawSqlPackageDeployProperty)) {
+    $params += "/p:$rawSqlPackageDeployProperty"
 }
 
-# --- Log the full sqlpackage.exe command (one line) ---
+# --- Print the full sqlpackage.exe command (one line) ---
 
 $cmdString = "& `"$SqlPackagePath`" " + ($params -join " ")
 Write-Host ""
@@ -222,6 +216,3 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Script completed successfully"
-
-
-{"DBversion":"#{Octopus.Release.Number}","Env":"test","variable3":"value3","variable4":"value4"}
