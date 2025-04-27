@@ -222,3 +222,6 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Script completed successfully"
+
+
+{"DBversion":"#{Octopus.Release.Number}","Env":"test","variable3":"value3","variable4":"value4"}
