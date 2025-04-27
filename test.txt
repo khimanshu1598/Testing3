@@ -246,3 +246,7 @@ Successfully generated report to file C:\actions-runner\_work\expenses-employee-
 Time elapsed 0:00:08.64
 sqlpackage executed successfully on attempt 1
 Script completed successfully
+
+##########################
+
+Executing full sqlpackage.exe command: & "C:\Program Files\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe" /Action:DeployReport /Profile:"C:\abc\releases\databases\EmployeeInvitation\abc-uat.publish.xml" /p:AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2' /SourceFile:"C:\abc\releases\databases\EmployeeInvitation\Employee.Invitation.Database.Build.dacpac" /TargetConnectionString:"Server=employeeinvitation.db.livestage6.test.abc.com; Database=EmployeeInvitation; Encrypt=True; TrustServerCertificate=True; multisubnetfailover=true;" /OutputPath:"C:\abc\releases\databases\EmployeeInvitation\deployreports\employeeinvitation.db.livestage6.test.abc.com.LS6 Global - 01.EmployeeInvitation.491.deployreport.xml"  
