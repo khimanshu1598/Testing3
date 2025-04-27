@@ -216,3 +216,11 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Script completed successfully"
+
+#####################################
+
+Script started. Action: DeployReport
+WARNING: Failed to parse SqlCmdVariables. Skipping.
+SqlPackageParameters is empty.
+WARNING: Failed to parse SQLPackageDeployProperties. Falling back to raw string.
+Executing full sqlpackage.exe command: & "C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe" /Action:DeployReport /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True; /OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml /p:AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2'
