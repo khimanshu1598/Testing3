@@ -235,24 +235,15 @@ Write-Host "✅ Script completed successfully"
 
 ####################
 
-Script started. Action: DeployReport
-SqlCmdVariables is empty.
-SqlPackageParameters is empty.
-WARNING: Failed to parse SQLPackageDeployProperties. Input was not valid JSON. Value: 
-AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModi
-fier.MAXDOP=2'
-Executing full sqlpackage.exe command:
-"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\sqlpackage\sqlpackage.exe" /Action:DeployReport /Profile="C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml" /SourceFile:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac" /TargetConnectionString:"Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;"/OutputPath:"C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml" 
-Attempt 1 of 3: Running sqlpackage.exe...
-*** Argument 'Action' has an invalid value: 'DeployReport /Profile=C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;/OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml '.
+*** Unrecognized command line argument 'Profile=C'.
 WARNING: sqlpackage failed on attempt 1: sqlpackage failed with exit code 1
 Retrying in 5 seconds...
 Attempt 2 of 3: Running sqlpackage.exe...
-*** Argument 'Action' has an invalid value: 'DeployReport /Profile=C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;/OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml '.
+*** Unrecognized command line argument 'Profile=C'.
 WARNING: sqlpackage failed on attempt 2: sqlpackage failed with exit code 1
 Retrying in 5 seconds...
 Attempt 3 of 3: Running sqlpackage.exe...
-*** Argument 'Action' has an invalid value: 'DeployReport /Profile=C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;/OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml '.
+*** Unrecognized command line argument 'Profile=C'.
 WARNING: sqlpackage failed on attempt 3: sqlpackage failed with exit code 1
 sqlpackage failed after 3 attempts.
 At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
