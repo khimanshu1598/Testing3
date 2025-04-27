@@ -139,32 +139,55 @@ if ($UseMultiSubnetFailover) {
 }
 
 # --- Parse Inputs to Hashtables ---
+
 $null = $sqlCmdVariableCollection = @{}
 $null = $sqlPackageParameterCollection = @{}
 $null = $sqlPackagePropertyCollection = @{}
 
-if (![string]::IsNullOrWhiteSpace($SQLCmdVariables) -and (Test-Json $SQLCmdVariables)) {
-    $sqlCmdVariableCollection = @{}
-    (ConvertFrom-Json $SQLCmdVariables).psobject.properties | ForEach-Object {
-        $sqlCmdVariableCollection[$_.Name] = $_.Value
+# SQLCmdVariables
+if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
+    try {
+        (ConvertFrom-Json $SQLCmdVariables).psobject.properties | ForEach-Object {
+            $sqlCmdVariableCollection[$_.Name] = $_.Value
+        }
+        Write-Host "Parsed SqlCmdVariables successfully."
+    } catch {
+        Write-Warning "⚠️ Failed to parse SqlCmdVariables. Input was not valid JSON. Value: $SQLCmdVariables"
     }
+} else {
+    Write-Host "ℹ️ SqlCmdVariables is empty."
 }
 
-if (![string]::IsNullOrWhiteSpace($SQLPackageParameters) -and (Test-Json $SQLPackageParameters)) {
-    $sqlPackageParameterCollection = @{}
-    (ConvertFrom-Json $SQLPackageParameters).psobject.properties | ForEach-Object {
-        $sqlPackageParameterCollection[$_.Name] = $_.Value
+# SQLPackageParameters
+if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
+    try {
+        (ConvertFrom-Json $SQLPackageParameters).psobject.properties | ForEach-Object {
+            $sqlPackageParameterCollection[$_.Name] = $_.Value
+        }
+        Write-Host "Parsed SqlPackageParameters successfully."
+    } catch {
+        Write-Warning "⚠️ Failed to parse SqlPackageParameters. Input was not valid JSON. Value: $SQLPackageParameters"
     }
+} else {
+    Write-Host "ℹ️ SqlPackageParameters is empty."
 }
 
-if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties) -and (Test-Json $SQLPackageDeployProperties)) {
-    $sqlPackagePropertyCollection = @{}
-    (ConvertFrom-Json $SQLPackageDeployProperties).psobject.properties | ForEach-Object {
-        $sqlPackagePropertyCollection[$_.Name] = $_.Value
+# SQLPackageDeployProperties
+if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
+    try {
+        (ConvertFrom-Json $SQLPackageDeployProperties).psobject.properties | ForEach-Object {
+            $sqlPackagePropertyCollection[$_.Name] = $_.Value
+        }
+        Write-Host "Parsed SQLPackageDeployProperties successfully."
+    } catch {
+        Write-Warning "⚠️ Failed to parse SQLPackageDeployProperties. Input was not valid JSON. Value: $SQLPackageDeployProperties"
     }
+} else {
+    Write-Host "ℹ️ SQLPackageDeployProperties is empty."
 }
 
 # --- Build final sqlpackage.exe Command ---
+
 $finalCmd = New-SqlPackageCommand `
     -Action $Action `
     -DacpacFilePath $DacpacPath `
@@ -179,6 +202,7 @@ Write-Host "`nExecuting full sqlpackage.exe command:"
 Write-Host "`"$SqlPackagePath`" $finalCmd"
 
 # --- Execute with Retry ---
+
 $maxRetries = 3
 $retryDelaySeconds = 5
 $attempt = 1
@@ -190,43 +214,20 @@ while ($attempt -le $maxRetries -and -not $success) {
         & $SqlPackagePath $finalCmd
         if ($LASTEXITCODE -eq 0) {
             $success = $true
-            Write-Host "sqlpackage executed successfully on attempt $attempt"
+            Write-Host "✅ sqlpackage executed successfully on attempt $attempt"
         } else {
-            throw "sqlpackage failed with exit code $LASTEXITCODE"
+            throw "❌ sqlpackage failed with exit code $LASTEXITCODE"
         }
     } catch {
-        Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
+        Write-Warning "⚠️ sqlpackage failed on attempt ${attempt}: $_"
         if ($attempt -lt $maxRetries) {
             Write-Host "⏳ Retrying in $retryDelaySeconds seconds..."
             Start-Sleep -Seconds $retryDelaySeconds
         } else {
-            throw "sqlpackage failed after $maxRetries attempts."
+            throw "❌ sqlpackage failed after $maxRetries attempts."
         }
     }
     $attempt++
 }
 
-Write-Host "Script completed successfully"
-
-########################
-
-Warning: JSON string is empty or null. Returning empty string.
-Warning: JSON string is empty or null. Returning empty string.
-Wrapping single JSON object in an array...
-Raw MATRIX_INSTANCE_LIST: {"instance":"i-047d18e123124124124","dbServerName":"GSQN-MB48C2.uat.aws.abc.com","role":"primary"}
-Run the Action DeployReport to - Instance: i-047d18e123124124124, Role: primary, DB Server: GSQN-MB48C2.uat.aws.abc.com
-    Directory: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs
-Mode                LastWriteTime         Length Name                                                                  
-----                -------------         ------ ----                                                                  
-d-----        4/27/2025   1:39 PM                deployreports                                                         
-Script started. Action: DeployReport
-Test-Json : The term 'Test-Json' is not recognized as the name of a cmdlet, function, script file, or operable 
-program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
-At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:342 char:70
-+ ... NullOrWhiteSpace($SQLPackageDeployProperties) -and (Test-Json $SQLPac ...
-+                                                         ~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (Test-Json:String) [], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : CommandNotFoundException
- 
-Error: Process completed with exit code 1.
+Write-Host "✅ Script completed successfully"
