@@ -111,7 +111,7 @@ if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
         }
         Write-Host "Parsed SqlCmdVariables successfully."
     } catch {
-        Write-Warning "Failed to parse SqlCmdVariables. Input was not valid JSON. Value: $SQLCmdVariables"
+        Write-Warning "Failed to parse SqlCmdVariables. Input was not valid JSON. Skipping SqlCmdVariables."
     }
 } else {
     Write-Host "SqlCmdVariables is empty."
@@ -125,24 +125,10 @@ if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
         }
         Write-Host "Parsed SqlPackageParameters successfully."
     } catch {
-        Write-Warning "Failed to parse SqlPackageParameters. Input was not valid JSON. Value: $SQLPackageParameters"
+        Write-Warning "Failed to parse SQLPackageParameters. Input was not valid JSON. Skipping SqlPackageParameters."
     }
 } else {
     Write-Host "SqlPackageParameters is empty."
-}
-
-# SQLPackageDeployProperties
-if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
-    try {
-        (ConvertFrom-Json $SQLPackageDeployProperties).psobject.properties | ForEach-Object {
-            $sqlPackagePropertyCollection[$_.Name] = $_.Value
-        }
-        Write-Host "Parsed SQLPackageDeployProperties successfully."
-    } catch {
-        Write-Warning "Failed to parse SQLPackageDeployProperties. Input was not valid JSON. Value: $SQLPackageDeployProperties"
-    }
-} else {
-    Write-Host "SQLPackageDeployProperties is empty."
 }
 
 # --- Build final sqlpackage.exe Parameter Array ---
@@ -181,11 +167,23 @@ if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and (![string]::IsNul
 # Add formatted /v: (variables)
 $params += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
 
-# Add formatted /p: (properties)
-$params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
-
 # Add formatted / (parameters)
 $params += Format-SqlPackageParameters -Parameters $sqlPackageParameterCollection
+
+# Handle SQLPackageDeployProperties separately
+if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
+    try {
+        (ConvertFrom-Json $SQLPackageDeployProperties).psobject.properties | ForEach-Object {
+            $params += "/p:$($_.Name)=$($_.Value)"
+        }
+        Write-Host "Parsed SQLPackageDeployProperties successfully."
+    } catch {
+        Write-Warning "Failed to parse SQLPackageDeployProperties as JSON. Falling back to raw string."
+        $params += "/p:$SQLPackageDeployProperties"
+    }
+} else {
+    Write-Host "SQLPackageDeployProperties is empty."
+}
 
 # --- Log the full sqlpackage.exe command (one line) ---
 
