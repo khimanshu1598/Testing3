@@ -187,11 +187,12 @@ $params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
 # Add formatted / (parameters)
 $params += Format-SqlPackageParameters -Parameters $sqlPackageParameterCollection
 
-# --- Log the final built params ---
-Write-Host "Final sqlpackage parameters:"
-foreach ($paramItem in $params) {
-    Write-Host "  $paramItem"
-}
+# --- Log the full sqlpackage.exe command (one line) ---
+
+$cmdString = "& `"$SqlPackagePath`" " + ($params -join " ")
+Write-Host ""
+Write-Host "Executing full sqlpackage.exe command: $cmdString"
+Write-Host ""
 
 # --- Execute with Retry ---
 
@@ -223,30 +224,3 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Script completed successfully"
-
-##########################################
-
-Script started. Action: DeployReport
-SqlCmdVariables is empty.
-SqlPackageParameters is empty.
-WARNING: Failed to parse SQLPackageDeployProperties. Input was not valid JSON. Value: 
-AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModi
-fier.MAXDOP=2'
-Final sqlpackage parameters:
-  /Action:DeployReport
-  /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
-  /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac
-  /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;
-  /OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml
-Attempt 1 of 3: Running sqlpackage.exe...
-Generating report for database 'DBA' on server 'GSQN-MB48C2.uat.aws.abc.com'.
-*** The following SqlCmd variables are not defined in the target scripts: DBVersion RedeployJobs Environment.
-*** The column DeployedBy on table [deployment].[Version] must be changed from NULL to NOT NULL. If the table contains data, the ALTER script may not work. To avoid this issue, you must add values to this column for all rows or mark it as allowing NULL values, or enable the generation of smart-defaults as a deployment option.
-Successfully generated report to file C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml.
-Time elapsed 0:00:08.64
-sqlpackage executed successfully on attempt 1
-Script completed successfully
-
-##########################
-
-Executing full sqlpackage.exe command: & "C:\Program Files\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe" /Action:DeployReport /Profile:"C:\abc\releases\databases\EmployeeInvitation\abc-uat.publish.xml" /p:AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2' /SourceFile:"C:\abc\releases\databases\EmployeeInvitation\Employee.Invitation.Database.Build.dacpac" /TargetConnectionString:"Server=employeeinvitation.db.livestage6.test.abc.com; Database=EmployeeInvitation; Encrypt=True; TrustServerCertificate=True; multisubnetfailover=true;" /OutputPath:"C:\abc\releases\databases\EmployeeInvitation\deployreports\employeeinvitation.db.livestage6.test.abc.com.LS6 Global - 01.EmployeeInvitation.491.deployreport.xml"  
