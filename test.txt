@@ -17,10 +17,113 @@ param (
 $ErrorActionPreference = "Stop"
 Write-Host "Script started. Action: $Action"
 
+# --- Helper Functions ---
+
+function Format-SqlCmdVariables {
+    [CmdletBinding()]
+    param (
+        [AllowNull()][Parameter(Mandatory=$true)][hashtable]$SqlCmdVariables
+    )
+    trap { throw $_ }
+
+    [string]$result = ''
+    if ($SqlCmdVariables -ne $null) {
+        foreach ($variable in $SqlCmdVariables.GetEnumerator()) {
+            $result += "/Variables:$($variable.Name)='$($variable.Value)' "
+        }
+    }
+    return $result
+}
+
+function Format-SqlPackageParameters {
+    [CmdletBinding()]
+    param (
+        [AllowNull()][Parameter(Mandatory=$true)][hashtable]$Parameters
+    )
+    trap { throw $_ }
+
+    [string]$result = ''
+    if ($Parameters -ne $null) {
+        foreach ($variable in $Parameters.GetEnumerator()) {
+            if (($variable.Value -is [int]) -or ($variable.Value -is [bool])) {
+                $result += "/$($variable.Name):$($variable.Value) "
+            } else {
+                $result += "/$($variable.Name):'$($variable.Value)' "
+            }
+        }
+    }
+    return $result
+}
+
+function Format-SqlPackageProperties {
+    [CmdletBinding()]
+    param (
+        [AllowNull()][Parameter(Mandatory=$true)][hashtable]$Properties
+    )
+    trap { throw $_ }
+
+    [string]$result = ''
+    if ($Properties -ne $null) {
+        foreach ($variable in $Properties.GetEnumerator()) {
+            if (($variable.Value -is [int]) -or ($variable.Value -is [bool])) {
+                $result += "/p:$($variable.Name)=$($variable.Value) "
+            } else {
+                $result += "/p:$($variable.Name)='$($variable.Value)' "
+            }
+        }
+    }
+    return $result
+}
+
+function New-SqlPackageCommand {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)][ValidateSet('Script', 'DeployReport', 'Extract', 'Publish')][string]$Action,
+        [Parameter(Mandatory=$true)][string]$DacpacFilePath,
+        [Parameter(Mandatory=$true)][string]$PublishProfileFilePath,
+        [string]$OutputFilePath,
+        [AllowNull()][hashtable]$SqlCmdVariables = @{},
+        [AllowNull()][hashtable]$SqlPackageParameters = @{},
+        [AllowNull()][hashtable]$SqlPackageProperties = @{},
+        [string]$ConnectionString = ''
+    )
+    trap { throw $_ }
+
+    $cmd = "/Action:$Action /Profile=`"$PublishProfileFilePath`" "
+
+    $cmd += Format-SqlCmdVariables -SqlCmdVariables $SqlCmdVariables
+    $cmd += Format-SqlPackageParameters -Parameters $SqlPackageParameters
+    $cmd += Format-SqlPackageProperties -Properties $SqlPackageProperties
+
+    $dacpacFilePathSwitch = "/SourceFile:`"$DacpacFilePath`" "
+    if ($Action -eq 'Extract') {
+        $dacpacFilePathSwitch = "/TargetFile:`"$DacpacFilePath`" "
+    }
+    $cmd += $dacpacFilePathSwitch
+
+    if (![string]::IsNullOrEmpty($ConnectionString)) {
+        $customConnectionString = "/TargetConnectionString:`"$ConnectionString`""
+        if ($Action -eq 'Extract') {
+            $customConnectionString = "/SourceConnectionString:`"$ConnectionString`""
+        }
+        $cmd += "$customConnectionString"
+    }
+
+    if (($Action -eq 'Script' -or $Action -eq 'DeployReport') -and ![string]::IsNullOrEmpty($OutputFilePath)) {
+        $cmd += "/OutputPath:`"$OutputFilePath`" "
+    }
+
+    return $cmd
+}
+
+# --- Main Script Logic ---
+
+# Validate sqlpackage.exe path
 if (-not (Test-Path $SqlPackagePath)) {
     throw "sqlpackage.exe not found at: $SqlPackagePath"
 }
 
+# Ensure Output folder exists
 if ($OutputPath -ne "") {
     $folder = Split-Path -Path $OutputPath -Parent
     if (-not (Test-Path $folder)) {
@@ -29,85 +132,53 @@ if ($OutputPath -ne "") {
     }
 }
 
+# Build Connection String
 $ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
-if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
-
-$params = @()
-
-switch ($Action.ToLower()) {
-    "extract" {
-        if (-not $OutputPath) { throw "OutputPath is required for Extract" }
-        $params += "/Action:Extract", "/TargetFile:$OutputPath", "/SourceConnectionString:$ConnectionString"
-    }
-    "deployreport" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
-        $params += "/Action:DeployReport", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    "script" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
-        $params += "/Action:Script", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    "publish" {
-        if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
-        $params += "/Action:Publish", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString"
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    default { throw "Unsupported Action: $Action" }
+if ($UseMultiSubnetFailover) {
+    $ConnectionString += "multisubnetfailover=true;"
 }
 
-if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
-    try {
-        $vars = ConvertFrom-Json $SQLCmdVariables
-        foreach ($pair in $vars.PSObject.Properties) {
-            $params += "/v:$($pair.Name)=$($pair.Value)"
-        }
-    } catch {
-        Write-Warning "Failed to parse SQLCmdVariables as JSON. Ignoring."
+# --- Parse Inputs to Hashtables ---
+$null = $sqlCmdVariableCollection = @{}
+$null = $sqlPackageParameterCollection = @{}
+$null = $sqlPackagePropertyCollection = @{}
+
+if (![string]::IsNullOrWhiteSpace($SQLCmdVariables) -and (Test-Json $SQLCmdVariables)) {
+    $sqlCmdVariableCollection = @{}
+    (ConvertFrom-Json $SQLCmdVariables).psobject.properties | ForEach-Object {
+        $sqlCmdVariableCollection[$_.Name] = $_.Value
     }
 }
 
-if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
-    try {
-        $paramsData = ConvertFrom-Json $SQLPackageParameters
-        foreach ($pair in $paramsData.PSObject.Properties) {
-            $params += "/p:$($pair.Name)=$($pair.Value)"
-        }
-    } catch {
-        Write-Warning "Failed to parse SQLPackageParameters as JSON. Ignoring."
+if (![string]::IsNullOrWhiteSpace($SQLPackageParameters) -and (Test-Json $SQLPackageParameters)) {
+    $sqlPackageParameterCollection = @{}
+    (ConvertFrom-Json $SQLPackageParameters).psobject.properties | ForEach-Object {
+        $sqlPackageParameterCollection[$_.Name] = $_.Value
     }
 }
 
-if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
-    try {
-        $props = ConvertFrom-Json $SQLPackageDeployProperties
-        foreach ($pair in $props.PSObject.Properties) {
-            $params += "/p:$($pair.Name)=$($pair.Value)"
-        }
-    } catch {
-        Write-Warning "Failed to parse SQLPackageDeployProperties as JSON. Ignoring."
+if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties) -and (Test-Json $SQLPackageDeployProperties)) {
+    $sqlPackagePropertyCollection = @{}
+    (ConvertFrom-Json $SQLPackageDeployProperties).psobject.properties | ForEach-Object {
+        $sqlPackagePropertyCollection[$_.Name] = $_.Value
     }
 }
 
-# # Debug: Show number of built parameters
-# Write-Host "DEBUG: Number of params: $($params.Count)"
+# --- Build final sqlpackage.exe Command ---
+$finalCmd = New-SqlPackageCommand `
+    -Action $Action `
+    -DacpacFilePath $DacpacPath `
+    -PublishProfileFilePath $PublishProfilePath `
+    -OutputFilePath $OutputPath `
+    -SqlCmdVariables $sqlCmdVariableCollection `
+    -SqlPackageParameters $sqlPackageParameterCollection `
+    -SqlPackageProperties $sqlPackagePropertyCollection `
+    -ConnectionString $ConnectionString
 
-# # Debug: Show each param (one per line)
-# foreach ($param in $params) {
-#     Write-Host "DEBUG PARAM: $param"
-# }
+Write-Host "`nExecuting full sqlpackage.exe command:"
+Write-Host "`"$SqlPackagePath`" $finalCmd"
 
-$fullParamString = $params -join ' '
-
-if (-not $fullParamString) {
-    throw "No parameters were built - please check that Action, DacpacPath, OutputPath, and other required values are passed correctly."
-}
-
-Write-Host "Running sqlpackage with: $fullParamString"
-Write-Host ""
-Write-Host "Executing full sqlpackage.exe command: & `"$SqlPackagePath`" $fullParamString"
-
+# --- Execute with Retry ---
 $maxRetries = 3
 $retryDelaySeconds = 5
 $attempt = 1
@@ -116,7 +187,7 @@ $success = $false
 while ($attempt -le $maxRetries -and -not $success) {
     Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
     try {
-        & $SqlPackagePath $params
+        & $SqlPackagePath $finalCmd
         if ($LASTEXITCODE -eq 0) {
             $success = $true
             Write-Host "sqlpackage executed successfully on attempt $attempt"
@@ -126,7 +197,7 @@ while ($attempt -le $maxRetries -and -not $success) {
     } catch {
         Write-Warning "sqlpackage failed on attempt ${attempt}: $_"
         if ($attempt -lt $maxRetries) {
-            Write-Host "Retrying in $retryDelaySeconds seconds..."
+            Write-Host "⏳ Retrying in $retryDelaySeconds seconds..."
             Start-Sleep -Seconds $retryDelaySeconds
         } else {
             throw "sqlpackage failed after $maxRetries attempts."
@@ -135,33 +206,4 @@ while ($attempt -le $maxRetries -and -not $success) {
     $attempt++
 }
 
-Write-Host "Completed successfully"
-
-
-
-    "deployreport" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
-        $params = @(
-            "/Action:DeployReport",
-            "/SourceFile:$DacpacPath",
-            "/TargetConnectionString:$ConnectionString",
-            "/OutputPath:$OutputPath"
-        )
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-
-        Convert the JSON string to a PowerShell object
-        if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
-        $params += "/v:$SQLCmdVariables"
-    }
-
-        if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
-        $params += "/v:$SQLPackageParameters"
-    }
-    if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
-        $params += "/p:$SQLPackageDeployProperties"
-    }
-    } 
-
-
-{"AdditionalDeploymentContributorArguments":"CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"}
-
+Write-Host "Script completed successfully"
