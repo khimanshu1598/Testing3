@@ -136,3 +136,28 @@ while ($attempt -le $maxRetries -and -not $success) {
 }
 
 Write-Host "Completed successfully"
+
+
+
+    "deployreport" {
+        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
+        $params = @(
+            "/Action:DeployReport",
+            "/SourceFile:$DacpacPath",
+            "/TargetConnectionString:$ConnectionString",
+            "/OutputPath:$OutputPath"
+        )
+        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
+
+        Convert the JSON string to a PowerShell object
+        if (![string]::IsNullOrEmpty($SQLCmdVariables)) {
+        $params += "/v:$SQLCmdVariables"
+    }
+
+        if (![string]::IsNullOrEmpty($SQLPackageParameters)) {
+        $params += "/v:$SQLPackageParameters"
+    }
+    if (![string]::IsNullOrEmpty($SQLPackageDeployProperties)) {
+        $params += "/p:$SQLPackageDeployProperties"
+    }
+    } 
