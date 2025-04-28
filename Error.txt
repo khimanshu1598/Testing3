@@ -174,18 +174,24 @@ jobs:
     $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
     $pathsArray = $env:OutPutPath -split ','
 
+    $ApprovalRequired = $false
+
     foreach ($path in $pathsArray) {
-      powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+      $output = powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+      Write-Host "DeployReportCheck Output: $output"
+
+      if ($output -match "Change detected in database") {
+        $ApprovalRequired = $true
+      }
     }
 
-    # Extra Safety: Trim any whitespace
-    $ApprovalRequired = $env:ApprovalRequired.Trim()
+    # Now ApprovalRequired is properly set
+    if ($ApprovalRequired) {
+      "ApprovalRequired=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+    } else {
+      "ApprovalRequired=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+    }
 
-    # Log for debug
-    Write-Host "ApprovalRequired final value: '$ApprovalRequired'"
-
-    # Correct Output for GitHub Actions
-    "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
 
 - name: Print GITHUB_OUTPUT for debug
