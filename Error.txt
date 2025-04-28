@@ -1,22 +1,22 @@
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Preparing environment for Action: DeployReport
+Calculated OutputPath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.deployreport.xml
+Updated DBVersion in PublishProfile.
 Script started. Action: DeployReport
 Parsed SqlCmdVariables successfully.
-Parsed SqlPackageParameters successfully.
+SqlPackageParameters is empty.
 Parsed SQLPackageDeployProperties successfully.
-Running sqlpackage.exe with parameters: /Action:DeployReport /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True; /OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
-
-
-Correct Output: -
-Script started. Action: DeployReport
-Invalid Parameter - JSON
-Running sqlpackage with: /Action:DeployReport /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True;multisubnetfailover=true; /OutputPath:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.primary.deployreport.xml /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml /p:AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2'
-
-
-Script started. Action: Publish
-Parsed SqlCmdVariables successfully.
-Parsed SqlPackageParameters successfully.
-Parsed SQLPackageDeployProperties successfully.
-Running sqlpackage.exe with parameters: /Action:Publish /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True; /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml
-
-Correct Output: -
-Script started. Action: Publish
-Running sqlpackage with: /Action:Publish /SourceFile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\Employee.Invitation.Database.Build.dacpac /TargetConnectionString:Server=GSQN-MB48C2.uat.aws.abc.com;Database=DBA;User=HimanshuSuccessUser;***;Encrypt=True;TrustServerCertificate=True; /Profile:C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\packages\abc-uat.publish.xml /v:DBversion='485'  /v:Env='test'  /v:variable3='value3'  /v:variable4='value4'  /p:AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2'
+Format-SqlCmdVariables : Cannot process argument transformation on parameter 'SqlCmdVariables'. Cannot convert value 
+"@{DBversion=#{Octopus.Release.Number}; Env=test; variable3=value3; variable4=value4}" to type 
+"System.Collections.Hashtable". Error: "Cannot convert the "@{DBversion=#{Octopus.Release.Number}; Env=test; 
+variable3=value3; variable4=value4}" value of type "System.Management.Automation.PSCustomObject" to type 
+"System.Collections.Hashtable"."
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:329 char:52
++ ...  += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
++                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [Format-SqlCmdVariables], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterArgumentTransformationError,Format-SqlCmdVariables
+ 
+Error: Process completed with exit code 1.
