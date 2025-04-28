@@ -329,3 +329,20 @@ runs:
             $allOutputPaths = $allOutputPaths.TrimEnd(',')
             "OutPutPath=$allOutputPaths" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         }
+
+==========
+
+Script started. Action: DeployReport
+SqlPackageParameters is empty.
+Format-SqlCmdVariables : Cannot process argument transformation on parameter 'SqlCmdVariables'. Cannot convert value 
+"@{DBversion=485; Env=test; variable3=value3; variable4=value4}" to type "System.Collections.Hashtable". Error: 
+"Cannot convert the "@{DBversion=485; Env=test; variable3=value3; variable4=value4}" value of type 
+"System.Management.Automation.PSCustomObject" to type "System.Collections.Hashtable"."
+At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
+nner-fixed.ps1:321 char:52
++ ...  += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
++                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [Format-SqlCmdVariables], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterArgumentTransformationError,Format-SqlCmdVariables
+ 
+Error: Process completed with exit code 1.
