@@ -1,3 +1,5 @@
+invoke-sql-actions/action.yaml: -
+
 name: 'Invoke sql_actions.ps1 on remote/target server.'
 description: 'Using aws ssm to invoke the script based on passed parameters.'
 
@@ -122,3 +124,157 @@ runs:
           echo "No error detected in the command output."
         fi
       done
+
+=========================================================
+validate-create-sql-user/action.yaml: -
+
+name: 'Create a new SQL user'
+description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+
+inputs:
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    required: true
+  db-name:
+    description: 'Name of the Database'
+    required: true
+  sql-user-name:
+    description: 'Name of the sql user to be created'
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Transfer GHA scripts to target server
+    id: transfer-script
+    uses: ./.github/actions/transfer-script
+    with:
+      file-path: "${{ inputs.file-path }}"
+      destination-path: 'C:\\Temp\\EmployeeInvitation'
+      aws-region: ${{ inputs.aws-region }}
+
+  - name: Validate if the SQL User exists and delete the SQL User
+    id: validate-user
+    uses: ./.github/actions/invoke-sql-actions
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'validate-delete-user'
+      destination-path: 'C:\\Temp\\EmployeeInvitation'
+      aws-region: ${{ inputs.aws-region }}
+
+  - name: Create a New SQL User and grant permissions to the new user
+    id: create-user
+    uses: ./.github/actions/invoke-sql-actions
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'create-user'
+      destination-path: 'C:\\Temp\\EmployeeInvitation'
+      aws-region: ${{ inputs.aws-region }}
+
+=========================================================
+
+transfer-script/action.yaml: -
+
+name: 'Transfer script to target server'
+description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+
+inputs:
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Folder path on the target server where the script will be placed'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+
+runs:
+  using: composite
+  steps:
+
+  - name: Transfer script to target EC2 server via SSM
+    id: transfer-file-to-ec2
+    shell: bash
+    run: |
+      set -e
+
+      # Encode the file in base64 (no line wrapping)
+      ENCODED=$(base64 -w 0 "${{ inputs.file-path }}")
+
+      # Build the PowerShell command
+      PS_COMMAND="\$b64='$ENCODED'; \
+      if (!(Test-Path '${{ inputs.destination-path }}')) { New-Item -Path '${{ inputs.destination-path }}' -ItemType Directory | Out-Null }; \
+      \$scriptPath = Join-Path '${{ inputs.destination-path }}' 'sql-actions.ps1'; \
+      if (Test-Path \$scriptPath) { Remove-Item \$scriptPath -Force; Write-Output 'FILE_DELETED' }; \
+      \$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
+      Set-Content -Path \$scriptPath -Value \$decoded -Force; \
+      Write-Output 'FILE_UPLOADED'"
+
+      # Normalize matrix list
+      matrixJson="$MATRIX_INSTANCE_LIST"
+      if [[ "$matrixJson" != \[* ]]; then
+        echo "Wrapping single JSON object in an array..."
+        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+      fi
+
+      echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+
+      # Loop through instances
+      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
+        instance=$(echo "$item" | jq -r '.instance')
+        dbServer=$(echo "$item" | jq -r '.dbServerName')
+        role=$(echo "$item" | jq -r '.role')
+
+        echo "----------------------------------"
+        echo "Transferring Powershell script - Instance: $instance, Role: $role, DB Server: $dbServer"
+
+        # Send file to EC2 via SSM
+        command_id=$(aws ssm send-command \
+          --document-name "AWS-RunPowerShellScript" \
+          --instance-ids "$instance" \
+          --region "${{ inputs.aws-region }}" \
+          --comment "Uploading sql-actions.ps1 via GitHub Actions" \
+          --parameters "commands=[\"$PS_COMMAND\"]" \
+          --query "Command.CommandId" \
+          --output text)
+
+        echo "Command ID generated: $command_id"
+      done
+
+=======================================================
+
+    - name: Create a new SQL User
+      id: create-user
+      uses: ./.github/actions/validate-create-sql-user
+      with:
+        file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
+        destination-path: 'C:\\Temp\\EmployeeInvitation'
+        aws-region: ${{ env.AWS_REGION }}
+        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+        db-name: ${{ env.DB_NAME }}
+        sql-user-name: ${{ env.SQL_USER_NAME }}
+
+
+Run matrixJson="$MATRIX_INSTANCE_LIST"
+Command ID generated: 9c0c87d4-5331-4472-bb29-661eb0f6f96e
+SSM command sent successfully!
+Error detected in the command output:
+Windows PowerShell 
+Copyright (C) 2016 Microsoft Corporation. All rights reserved.
+----------ERROR-------
+The argument 'C:\Temp\EmployeeInvitation\sql-actions.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
+Error: Process completed with exit code 1.
