@@ -106,3 +106,61 @@ if ($env:GITHUB_ENV) {
           oidc-role: ${{ vars.oidc_role_arn }}
           oidc-target-role: ${{ vars.deployment_role_arn }}
           aws-region: ${{ vars.AWS_REGION }}
+
+
+########################
+
+name: Employee Invitation Github Workflow
+
+on:
+  pull_request:
+    paths:
+    - '.github/workflows/employee_invitation_workflow.yml'
+  workflow_dispatch:
+  
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
+  
+
+env:
+  DACPAC_OUTPUT_DIR: 'C:\dacpac-extracts'
+  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
+  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
+  OD_GHA_FILE_PATH: "od-gha-files"
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  DB_NAME: ${{ vars.DB_NAME }}
+  NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
+  NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
+  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
+  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
+  PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
+  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
+  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
+  RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
+  DACPAC_ENVIRONMENT: ${{ vars.DACPAC_ENVIRONMENT }}
+  ENVIRONMENT: ${{ vars.ENVIRONMENT }}
+  SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+  SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
+  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS }}
+
+jobs:
+  generate-deploy-report-deploy-script:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: test
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+
+    - name: Download Dependencies and Utilities
+      id: download-dependencies
+      uses: ./.github/actions/download-packages
+      with:
+        oidc-role: ${{ vars.oidc_role_arn }}
+        oidc-target-role: ${{ vars.deployment_role_arn }}
+        aws-region: ${{ vars.AWS_REGION }}
