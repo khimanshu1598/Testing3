@@ -1,86 +1,97 @@
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$DeployReportPath
-)
+name: 'Transfer script to target server'
+description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
 
-$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
+inputs:
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
 
-if (-not (Test-Path $DeployReportPath)) {
-    Write-Output "ERROR: Deploy report file not found at: $DeployReportPath"
-    exit 1
-}
+runs:
+  using: composite
+  steps:
 
-$deployReportContent = Get-Content $DeployReportPath -Raw
+  - name: Run AWS SSM send command to transfer file tp target server
+    id: transfer-file-to-ec2
+    shell: bash
+    run: |
+      
+      # Encode the file in base64 (no line wrapping)
+      ENCODED=$(base64 -w 0 "${{ inputs.file-path }}")
 
-if ($deployReportContent -eq $NoChangesReport) {
-    Write-Output "No change detected in database. Deploy report matches baseline."
-    $ApprovalRequired = "false"
-} else {
-    Write-Output "Change detected in database! Deploy report differs from baseline."
-    $ApprovalRequired = "true"
-}
+      # Build the PowerShell command to run remotely
+      PS_COMMAND="\$b64='$ENCODED'; \
+      if (Test-Path "${{ inputs.destination-path }}") { if (Test-Path "${{ inputs.destination-path }}-sql-actions.ps1") { Remove-Item "${{ inputs.destination-path }}-sql-actions.ps1" -Force; Write-Output 'FILE_DELETED' } } else { New-Item -Path "${{ inputs.destination-path }}" -ItemType Directory | Out-Null }; \
+      \$decoded=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
+      Set-Content -Path "${{ inputs.destination-path }}-sql-actions.ps1" -Value \$decoded -Force"
 
-if ($env:GITHUB_ENV) {
-    "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-}
+      #If only since instance is passed in MATRIX_LIST_INSTANCE, convert it into a list
+      matrixJson="$MATRIX_INSTANCE_LIST"
+      if [[ "$matrixJson" != \[* ]]; then
+        echo "Wrapping single JSON object in an array..."
+        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+      fi
+      echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
 
-    - name: SQL Deploy Report Check
-      shell: powershell
-      run: |
-        
-        $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
-        # $reportPath = "${{ github.workspace }}\dacpacs\Database.xml"
 
-        $pathsArray = $env:OutPutPath -split ','
+      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
+        instance=$(echo "$item" | jq -r '.instance')
+        dbServer=$(echo "$item" | jq -r '.dbServerName')
+        role=$(echo "$item" | jq -r '.role')
 
-        foreach ($path in $pathsArray) {
-            powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
-        }
+        echo "----------------------------------"
+        echo "Transferring Powershell scripts - Instance: $instance, Role: $role, DB Server: $dbServer"
 
-        # # powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $reportPath
-        # powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $env:outputPath
+        # Send it to EC2 via SSM
+        aws ssm send-command \
+          --document-name "AWS-RunPowerShellScript" \
+          --instance-ids "$instance" \
+          --region "${{ inputs.aws-region }}" \
+          --comment "Uploading sql-actions.ps1 via GitHub Actions" \
+          --parameters "commands=[\"$PS_COMMAND\"]" \
+          --query "Command.CommandId" \
+          --output text
+      done
+=================
+Transferring Powershell scripts - Instance: i-01e71fe412312412412412, Role: primary, DB Server: GSQN-76FZVN.uat.aws.abc.com
+09843d29-c82a-45c0-a55d-5a5e6838bc01
+Prepare all required actions
+Run ./.github/actions/invoke-sql-actions
+Run #Fetch sql-user password from parameter store
+  
+----------------------------------
+Sending to - Instance: i-01e71fe412312412412412, Role: primary, DB Server: GSQN-76FZVN.uat.aws.abc.com for validate-delete-user
+Run matrixJson="$MATRIX_INSTANCE_LIST"
+  
+Command ID generated: 722b1d2d-7f0c-4eb1-b9ee-2e1b3fdac34c
+SSM command sent successfully!
+Error detected in the command output:
+Windows PowerShell 
+Copyright (C) 2016 Microsoft Corporation. All rights reserved.
+----------ERROR-------
+The argument 'C:\Temp\EmployeeInvitation\sql-actions.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
+Error: Process completed with exit code 1.
+===================
 
-    - name: Print approval status
-      run: echo "ApprovalRequired is ${{ env.ApprovalRequired }}"
+if (Test-Path "${{ inputs.destination-path }}") { if (Test-Path "${{ inputs.destination-path }}-sql-actions.ps1") 
 
-    - name: Slack - Manual Approval Notification
-      id: manual_approval_notification
-      if: steps.script-dacpac.outcome == 'success'
-      shell: bash
-      run: |
-        curl -X POST -H 'Content-type: application/json' \
-        --data '{"text":"*EmployeeInvitation database deployment requires manual approval* \n<${{ github.server_url }}/${{ github.repository }}/actions|${{ github.event.repository.name }}> database deployment requires manual approval for release <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ env.RELEASE_NUMBER }}> to ${{ vars.ENVIRONMENT }}"}' \
-        "$SLACK_WEBHOOK_URL"
+What is is checking if the inputs.destination-path value is       destination-path: 'C:\\Temp\\EmployeeInvitation'
 
-    - name: Slack - Manual Approval Notification for Artifacts Review
-      id: manual_approval_notification_artifacts_review
-      if: steps.script-dacpac.outcome == 'success' && ${{ env.ADD_ARTIFACTS_TO_RELEASE }} == 'true'
-      shell: bash
-      run: |
-        curl -X POST -H 'Content-type: application/json' \
-        --data '{"text":"*Review Deployment Artifacts* \nReview the DACPAC Deploy Report and Deploy Script: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ env.ARTIFACT_ID }}|Click Here>"}' \
-        "$SLACK_WEBHOOK_URL"
 
-  wait-for-approval:
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    environment: approval
-    needs: generate-deploy-report-deploy-script
-    steps:
-    - name: "Review - Deploy Report and Deploy Script"
-      run: |
-        echo "The request has been approved the by the approvers.Proceeding with next steps"
+==============
 
-  deploy-publish:
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    environment: test
-    needs: wait-for-approval
-    steps:
-    - name: "Checkout"
-      uses: actions/checkout@v4
-    - name: Download Dependencies and Utilities
-      id: download-dependencies
-      uses: ./.github/actions/download-packages
+    - name: Create a new SQL User
+      id: create-user
+      uses: ./.github/actions/validate-create-sql-user
       with:
-        oidc-role: ${{ vars.oidc_role_arn }}
-        oidc-target-role: ${{ vars.deployment_role_arn }}
-        aws-region: ${{ vars.AWS_REGION }}
+        file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
+        destination-path: 'C:\\Temp\\EmployeeInvitation'
+        aws-region: ${{ env.AWS_REGION }}
+        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+        db-name: ${{ env.DB_NAME }}
+        sql-user-name: ${{ env.SQL_USER_NAME }}
