@@ -278,3 +278,9 @@ Copyright (C) 2016 Microsoft Corporation. All rights reserved.
 ----------ERROR-------
 The argument 'C:\Temp\EmployeeInvitation\sql-actions.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
 Error: Process completed with exit code 1.
+
+
+Invoking script sql-actions.ps1 on target instance via GitHub Actions for create-user
+
+The argument 'C:\Temp\EmployeeInvitation\sql-actions.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
+
