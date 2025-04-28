@@ -25,6 +25,22 @@ if ($env:GITHUB_ENV) {
 }
 
 
+    - name: SQL Deploy Report Check
+      id: sql-deploy-report-check
+      shell: powershell
+      run: |
+        
+        $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
+        # $reportPath = "${{ github.workspace }}\dacpacs\Database.xml"
+
+        $pathsArray = $env:OutPutPath -split ','
+
+        foreach ($path in $pathsArray) {
+            powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+        }
+
+        echo "Approval_Required=$env:ApprovalRequired" >> $GITHUB_OUTPUT
+
     - name: Slack - Manual Approval Notification
       id: manual_approval_notification
       # if: needs.generate-deploy-report-deploy-script.outputs.approval_required == 'true'
