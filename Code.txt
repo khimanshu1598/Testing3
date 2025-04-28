@@ -24,6 +24,21 @@ if ($env:GITHUB_ENV) {
     "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 }
 
+    - name: SQL Deploy Report Check
+      shell: powershell
+      run: |
+        
+        $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
+        # $reportPath = "${{ github.workspace }}\dacpacs\Database.xml"
+
+        $pathsArray = $env:OutPutPath -split ','
+
+        foreach ($path in $pathsArray) {
+            powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+        }
+
+        # # powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $reportPath
+        # powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $env:outputPath
 
     - name: Print approval status
       run: echo "ApprovalRequired is ${{ env.ApprovalRequired }}"
