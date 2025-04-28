@@ -1,9 +1,18 @@
-name: 'Transfer script to target server'
-description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+name: 'Invoke sql_actions.ps1 on remote/target server.'
+description: 'Using aws ssm to invoke the script based on passed parameters.'
 
 inputs:
-  file-path:
-    description: 'Path of the scripts in GHA Runner to send to target server'
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    required: true
+  db-name:
+    description: 'Name of the DB'
+    required: true
+  sql-user-name:
+    description: 'Name of the sql user to be created'
+    required: true
+  sql-activity:
+    description: 'Activity to perform [create-user, validate-delete-user, delete-user ]' # Need to check correct name for delete-user
     required: true
   destination-path:
     description: 'Path on the target server where script needs to be added'
@@ -15,28 +24,22 @@ inputs:
 runs:
   using: composite
   steps:
-
-  - name: Run AWS SSM send command to transfer file tp target server
-    id: transfer-file-to-ec2
+  - name: Invoke sql actions script on EC2 via SSM
     shell: bash
     run: |
-      
-      # Encode the file in base64 (no line wrapping)
-      ENCODED=$(base64 -w 0 "${{ inputs.file-path }}")
+      #Fetch sql-user password from parameter store
+      sqlPassword=$(aws ssm get-parameter \
+      --name ${{ inputs.sql-password-parameter-store }} \
+      --with-decryption \
+      --query "Parameter.Value" \
+      --output text)
 
-      # Build the PowerShell command to run remotely
-      PS_COMMAND="\$b64='$ENCODED'; \
-      if (Test-Path "${{ inputs.destination-path }}") { if (Test-Path "${{ inputs.destination-path }}-sql-actions.ps1") { Remove-Item "${{ inputs.destination-path }}-sql-actions.ps1" -Force; Write-Output 'FILE_DELETED' } } else { New-Item -Path "${{ inputs.destination-path }}" -ItemType Directory | Out-Null }; \
-      \$decoded=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
-      Set-Content -Path "${{ inputs.destination-path }}-sql-actions.ps1" -Value \$decoded -Force"
-
-      #If only since instance is passed in MATRIX_LIST_INSTANCE, convert it into a list
       matrixJson="$MATRIX_INSTANCE_LIST"
       if [[ "$matrixJson" != \[* ]]; then
-        echo "Wrapping single JSON object in an array..."
+        # echo "Wrapping single JSON object in an array..."
         matrixJson=$(echo "$matrixJson" | jq -c '[.]')
       fi
-      echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+      # echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
 
 
       echo "$matrixJson" | jq -c '.[]' | while read -r item; do
@@ -45,108 +48,77 @@ runs:
         role=$(echo "$item" | jq -r '.role')
 
         echo "----------------------------------"
-        echo "Transferring Powershell scripts - Instance: $instance, Role: $role, DB Server: $dbServer"
+        echo "Sending to - Instance: $instance, Role: $role, DB Server: $dbServer for ${{ inputs.sql-activity }}"
 
-        # Send it to EC2 via SSM
-        aws ssm send-command \
+        #Input parameters required to run sql-actions.ps1
+        serverInstance=$dbServer
+        databaseName=${{ inputs.db-name }}
+        sqlUserName=${{ inputs.sql-user-name }}
+        sqlPassword=$sqlPassword
+        adUserSsmPassword='/secure/dbpassword'
+        sqlActivity=${{ inputs.sql-activity }}
+
+        # PowerShell command to invoke the script directly from the remote server
+        PS_COMMAND="powershell -File "${{ inputs.destination-path }}\\sql-actions.ps1" -serverInstance '$serverInstance' -databaseName '$databaseName' -sqlUserName '$sqlUserName' -sqlPassword '$sqlPassword' -adUserSsmPassword '$adUserSsmPassword' -sqlActivity '$sqlActivity' -Verbose"
+
+        #Use AWS SSM command to run the above powershell script
+        ssmCommand=$(aws ssm send-command \
           --document-name "AWS-RunPowerShellScript" \
           --instance-ids "$instance" \
           --region "${{ inputs.aws-region }}" \
-          --comment "Uploading sql-actions.ps1 via GitHub Actions" \
+          --comment "Invoking script sql-actions.ps1 on target instance via GitHub Actions for $sqlActivity" \
           --parameters "commands=[\"$PS_COMMAND\"]" \
           --query "Command.CommandId" \
-          --output text
+          --output text)
+
+        # Exporting commandId for next steps.
+        echo "commandId=$ssmCommand" >> $GITHUB_ENV
       done
-=================
-Transferring Powershell scripts - Instance: i-01e71fe412312412412412, Role: primary, DB Server: GSQN-76FZVN.uat.aws.abc.com
-09843d29-c82a-45c0-a55d-5a5e6838bc01
-Prepare all required actions
-Run ./.github/actions/invoke-sql-actions
-Run #Fetch sql-user password from parameter store
-  
-----------------------------------
-The argument 'C:\Temp\EmployeeInvitation\sql-actions.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
 
+  - name: Check command status
+    shell: bash
+    run: |
+      matrixJson="$MATRIX_INSTANCE_LIST"
 
-==============
+      if [[ "$matrixJson" != \[* ]]; then
+        # echo "Wrapping single JSON object in an array..."
+        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+      fi
 
-    - name: Create a new SQL User
-      id: create-user
-      uses: ./.github/actions/validate-create-sql-user
-      with:
-        file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
-        destination-path: 'C:\\Temp\\EmployeeInvitation'
-        aws-region: ${{ env.AWS_REGION }}
-        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-        db-name: ${{ env.DB_NAME }}
-        sql-user-name: ${{ env.SQL_USER_NAME }}
+      # echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
 
-====================
+      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
+        instance=$(echo "$item" | jq -r '.instance')
+        dbServer=$(echo "$item" | jq -r '.dbServerName')
+        role=$(echo "$item" | jq -r '.role')
 
-name: 'Transfer script to target server'
-description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+        # echo "----------------------------------"
+        # echo "Sending to - Instance: $instance, Role: $role, DB Server: $dbServer for ${{ inputs.sql-activity }}"
 
-inputs:
-  file-path:
-    description: 'Path of the scripts in GHA Runner to send to target server'
-    required: true
-  destination-path:
-    description: 'Folder path on the target server where the script will be placed'
-    required: true
-  aws-region:
-    description: 'AWS region details'
-    required: true
+        echo "Command ID generated: $commandId"
 
-runs:
-  using: composite
-  steps:
-
-    - name: Transfer script to target EC2 server via SSM
-      id: transfer-file-to-ec2
-      shell: bash
-      run: |
-        set -e
-
-        # Encode the file in base64 (no line wrapping)
-        ENCODED=$(base64 -w 0 "${{ inputs.file-path }}")
-
-        # Build the PowerShell command
-        PS_COMMAND="\$b64='$ENCODED'; \
-        if (!(Test-Path '${{ inputs.destination-path }}')) { New-Item -Path '${{ inputs.destination-path }}' -ItemType Directory | Out-Null }; \
-        \$scriptPath = Join-Path '${{ inputs.destination-path }}' 'sql-actions.ps1'; \
-        if (Test-Path \$scriptPath) { Remove-Item \$scriptPath -Force; Write-Output 'FILE_DELETED' }; \
-        \$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
-        Set-Content -Path \$scriptPath -Value \$decoded -Force; \
-        Write-Output 'FILE_UPLOADED'"
-
-        # Normalize matrix list
-        matrixJson="$MATRIX_INSTANCE_LIST"
-        if [[ "$matrixJson" != \[* ]]; then
-          echo "Wrapping single JSON object in an array..."
-          matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+        if [[ -n "$commandId" ]]; then
+          echo "SSM command sent successfully!"
+          aws ssm wait command-executed \
+            --command-id "$commandId" \
+            --instance-id "$instance"
+        else
+          echo "Failed to send SSM command."
+          exit 1
         fi
 
-        echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+        commandStatus=$(aws ssm list-command-invocations \
+          --command-id "$commandId" \
+          --details \
+          --output json)
 
-        # Loop through instances
-        echo "$matrixJson" | jq -c '.[]' | while read -r item; do
-          instance=$(echo "$item" | jq -r '.instance')
-          dbServer=$(echo "$item" | jq -r '.dbServerName')
-          role=$(echo "$item" | jq -r '.role')
+        standardOutput=$(echo "$commandStatus" | jq -r '.CommandInvocations[0].CommandPlugins[0].Output')
 
-          echo "----------------------------------"
-          echo "Transferring Powershell script - Instance: $instance, Role: $role, DB Server: $dbServer"
-
-          # Send file to EC2 via SSM
-          command_id=$(aws ssm send-command \
-            --document-name "AWS-RunPowerShellScript" \
-            --instance-ids "$instance" \
-            --region "${{ inputs.aws-region }}" \
-            --comment "Uploading sql-actions.ps1 via GitHub Actions" \
-            --parameters "commands=[\"$PS_COMMAND\"]" \
-            --query "Command.CommandId" \
-            --output text)
-
-          echo "Command ID generated: $command_id"
-        done
-
+        if echo "$standardOutput" | grep -q "ERROR"; then
+          echo "Error detected in the command output:"
+          echo "$standardOutput"
+          exit 1
+        else
+          echo "No error detected in the command output."
+        fi
+      done
