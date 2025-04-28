@@ -95,3 +95,73 @@ What is is checking if the inputs.destination-path value is       destination-pa
         sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
         db-name: ${{ env.DB_NAME }}
         sql-user-name: ${{ env.SQL_USER_NAME }}
+
+====================
+
+name: 'Transfer script to target server'
+description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+
+inputs:
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Folder path on the target server where the script will be placed'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+
+runs:
+  using: composite
+  steps:
+
+    - name: Transfer script to target EC2 server via SSM
+      id: transfer-file-to-ec2
+      shell: bash
+      run: |
+        set -e
+
+        # Encode the file in base64 (no line wrapping)
+        ENCODED=$(base64 -w 0 "${{ inputs.file-path }}")
+
+        # Build the PowerShell command
+        PS_COMMAND="\$b64='$ENCODED'; \
+        if (!(Test-Path '${{ inputs.destination-path }}')) { New-Item -Path '${{ inputs.destination-path }}' -ItemType Directory | Out-Null }; \
+        \$scriptPath = Join-Path '${{ inputs.destination-path }}' 'sql-actions.ps1'; \
+        if (Test-Path \$scriptPath) { Remove-Item \$scriptPath -Force; Write-Output 'FILE_DELETED' }; \
+        \$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
+        Set-Content -Path \$scriptPath -Value \$decoded -Force; \
+        Write-Output 'FILE_UPLOADED'"
+
+        # Normalize matrix list
+        matrixJson="$MATRIX_INSTANCE_LIST"
+        if [[ "$matrixJson" != \[* ]]; then
+          echo "Wrapping single JSON object in an array..."
+          matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+        fi
+
+        echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+
+        # Loop through instances
+        echo "$matrixJson" | jq -c '.[]' | while read -r item; do
+          instance=$(echo "$item" | jq -r '.instance')
+          dbServer=$(echo "$item" | jq -r '.dbServerName')
+          role=$(echo "$item" | jq -r '.role')
+
+          echo "----------------------------------"
+          echo "Transferring Powershell script - Instance: $instance, Role: $role, DB Server: $dbServer"
+
+          # Send file to EC2 via SSM
+          command_id=$(aws ssm send-command \
+            --document-name "AWS-RunPowerShellScript" \
+            --instance-ids "$instance" \
+            --region "${{ inputs.aws-region }}" \
+            --comment "Uploading sql-actions.ps1 via GitHub Actions" \
+            --parameters "commands=[\"$PS_COMMAND\"]" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "Command ID generated: $command_id"
+        done
+
