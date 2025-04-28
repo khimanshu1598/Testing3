@@ -65,22 +65,7 @@ Run ./.github/actions/invoke-sql-actions
 Run #Fetch sql-user password from parameter store
   
 ----------------------------------
-Sending to - Instance: i-01e71fe412312412412412, Role: primary, DB Server: GSQN-76FZVN.uat.aws.abc.com for validate-delete-user
-Run matrixJson="$MATRIX_INSTANCE_LIST"
-  
-Command ID generated: 722b1d2d-7f0c-4eb1-b9ee-2e1b3fdac34c
-SSM command sent successfully!
-Error detected in the command output:
-Windows PowerShell 
-Copyright (C) 2016 Microsoft Corporation. All rights reserved.
-----------ERROR-------
 The argument 'C:\Temp\EmployeeInvitation\sql-actions.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
-Error: Process completed with exit code 1.
-===================
-
-if (Test-Path "${{ inputs.destination-path }}") { if (Test-Path "${{ inputs.destination-path }}-sql-actions.ps1") 
-
-What is is checking if the inputs.destination-path value is       destination-path: 'C:\\Temp\\EmployeeInvitation'
 
 
 ==============
