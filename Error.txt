@@ -4,16 +4,15 @@ Preparing environment for Action: DeployReport
 Calculated OutputPath: C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\dacpacs\deployreports\employeeinvitation.db.livestage6.test.abc.com.DBA.485.deployreport.xml
 Updated DBVersion in PublishProfile.
 Script started. Action: DeployReport
-Parsed SqlCmdVariables successfully.
+WARNING: Failed to parse SqlCmdVariables. Skipping.
 SqlPackageParameters is empty.
-Parsed SQLPackageDeployProperties successfully.
+WARNING: Failed to parse SQLPackageDeployProperties. Falling back to raw string.
 Format-SqlCmdVariables : Cannot process argument transformation on parameter 'SqlCmdVariables'. Cannot convert value 
-"@{DBversion=#{Octopus.Release.Number}; Env=test; variable3=value3; variable4=value4}" to type 
-"System.Collections.Hashtable". Error: "Cannot convert the "@{DBversion=#{Octopus.Release.Number}; Env=test; 
-variable3=value3; variable4=value4}" value of type "System.Management.Automation.PSCustomObject" to type 
-"System.Collections.Hashtable"."
+"@{DBversion=; Env=test; variable3=value3; variable4=value4}" to type "System.Collections.Hashtable". Error: "Cannot 
+convert the "@{DBversion=; Env=test; variable3=value3; variable4=value4}" value of type 
+"System.Management.Automation.PSCustomObject" to type "System.Collections.Hashtable"."
 At C:\actions-runner\_work\expenses-employee-invitation-api\expenses-employee-invitation-api\od-gha-files\sqlpackage-ru
-nner-fixed.ps1:329 char:52
+nner-fixed.ps1:330 char:60
 + ...  += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
 +                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : InvalidData: (:) [Format-SqlCmdVariables], ParentContainsErrorRecordException
