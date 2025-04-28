@@ -29,3 +29,10 @@
     
     # Also set as environment variable for current job
     echo "ApprovalRequired=$finalApprovalRequired" >> $env:GITHUB_ENV
+
+- name: Verify Outputs
+  shell: bash
+  run: |
+    echo "ApprovalRequired output: ${{ steps.sql-deploy-report-check.outputs.ApprovalRequired }}"
+    echo "approval_required output: ${{ steps.sql-deploy-report-check.outputs.approval_required }}"
+    echo "Environment ApprovalRequired: $ApprovalRequired"
