@@ -192,3 +192,15 @@ jobs:
   shell: powershell
   run: Get-Content $env:GITHUB_OUTPUT
 
+
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Change detected in database! Deploy report differs from baseline.
+You cannot call a method on a null-valued expression.
+At C:\actions-runner\_work\_temp\37bf53b4-9a42-4cdf-9299-6713792543af.ps1:10 char:1
++ $ApprovalRequired = $env:ApprovalRequired.Trim()
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : InvokeMethodOnNull
+ 
+Error: Process completed with exit code 1.
