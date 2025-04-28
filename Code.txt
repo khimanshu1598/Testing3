@@ -1,125 +1,71 @@
-param (
-    [string]$Action,
-    [string]$DacpacPath,
-    [string]$PublishProfilePath = "",
-    [string]$ServerInstance,
-    [string]$DatabaseName,
-    [string]$UserName,
-    [string]$Password,
-    [string]$SqlPackagePath,
-    [string]$OutputPath = "",
-    [string]$UseMultiSubnetFailover,
-    [string]$SQLPackageDeployProperties = "",
-    [string]$SQLCmdVariables = "",
-    [string]$SQLPackageParameters = ""
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$DeployReportPath
 )
 
-$ErrorActionPreference = "Stop"
-Write-Host "Script started. Action: $Action"
+$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
 
-# Helper: Create folder if needed
-function Ensure-DirectoryExists($path) {
-    $folder = Split-Path -Path $path -Parent
-    if (-not (Test-Path $folder)) {
-        Write-Host "Creating output directory: $folder"
-        New-Item -Path $folder -ItemType Directory -Force | Out-Null
-    }
+if (-not (Test-Path $DeployReportPath)) {
+    Write-Output "ERROR: Deploy report file not found at: $DeployReportPath"
+    exit 1
 }
 
-# Helper: Parse Key=Value pairs
-function Parse-KeyValuePairs($inputString, $prefix) {
-    $result = @()
-    if (![string]::IsNullOrWhiteSpace($inputString)) {
-        foreach ($pair in $inputString -split ',') {
-            $kv = $pair -split '='
-            if ($kv.Count -eq 2) {
-                $key = $kv[0].Trim()
-                $value = $kv[1].Trim()
-                $result += "$prefix$key=$value"
-            }
-        }
-    }
-    return $result
+$deployReportContent = Get-Content $DeployReportPath -Raw
+
+if ($deployReportContent -eq $NoChangesReport) {
+    Write-Output "No change detected in database. Deploy report matches baseline."
+    $ApprovalRequired = "false"
+} else {
+    Write-Output "Change detected in database! Deploy report differs from baseline."
+    $ApprovalRequired = "true"
 }
 
-# Validate sqlpackage
-if (-not (Test-Path $SqlPackagePath)) {
-    throw "sqlpackage.exe not found at: $SqlPackagePath"
+if ($env:GITHUB_ENV) {
+    "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 }
 
-# Ensure output folder exists if needed
-if ($OutputPath) {
-    Ensure-DirectoryExists $OutputPath
-}
 
-# Build connection string
-$ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
-if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
+    - name: Print approval status
+      run: echo "ApprovalRequired is ${{ env.ApprovalRequired }}"
 
-# Build base params
-$params = @()
+    - name: Slack - Manual Approval Notification
+      id: manual_approval_notification
+      if: steps.script-dacpac.outcome == 'success'
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*EmployeeInvitation database deployment requires manual approval* \n<${{ github.server_url }}/${{ github.repository }}/actions|${{ github.event.repository.name }}> database deployment requires manual approval for release <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ env.RELEASE_NUMBER }}> to ${{ vars.ENVIRONMENT }}"}' \
+        "$SLACK_WEBHOOK_URL"
 
-switch ($Action.ToLower()) {
-    "extract" {
-        if (-not $OutputPath) { throw "OutputPath is required for Extract" }
-        $params += "/Action:Extract", "/TargetFile:$OutputPath", "/SourceConnectionString:$ConnectionString"
-    }
-    "deployreport" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath are required for DeployReport" }
-        $params += "/Action:DeployReport", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    "script" {
-        if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath are required for Script" }
-        $params += "/Action:Script", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    "publish" {
-        if (-not $DacpacPath) { throw "DacpacPath is required for Publish" }
-        $params += "/Action:Publish", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString"
-        if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-    }
-    default {
-        throw "Unsupported Action: $Action"
-    }
-}
+    - name: Slack - Manual Approval Notification for Artifacts Review
+      id: manual_approval_notification_artifacts_review
+      if: steps.script-dacpac.outcome == 'success' && ${{ env.ADD_ARTIFACTS_TO_RELEASE }} == 'true'
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*Review Deployment Artifacts* \nReview the DACPAC Deploy Report and Deploy Script: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ env.ARTIFACT_ID }}|Click Here>"}' \
+        "$SLACK_WEBHOOK_URL"
 
-# Add Key-Value Parameters
-$params += Parse-KeyValuePairs $SQLCmdVariables "/v:"
-$params += Parse-KeyValuePairs $SQLPackageParameters "/v:"
-if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
-    $params += "/p:$SQLPackageDeployProperties"
-}
+  wait-for-approval:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: approval
+    needs: generate-deploy-report-deploy-script
+    steps:
+    - name: "Review - Deploy Report and Deploy Script"
+      run: |
+        echo "The request has been approved the by the approvers.Proceeding with next steps"
 
-# Run sqlpackage with retry
-Write-Host "Running sqlpackage with parameters: $params"
-
-$maxRetries = 3
-$retryDelaySeconds = 5
-$success = $false
-$attempt = 1
-
-while ($attempt -le $maxRetries -and -not $success) {
-    Write-Host "Attempt $attempt of $maxRetries..."
-
-    try {
-        & $SqlPackagePath @params
-        if ($LASTEXITCODE -eq 0) {
-            $success = $true
-            Write-Host "sqlpackage executed successfully on attempt $attempt"
-        } else {
-            throw "sqlpackage failed with exit code $LASTEXITCODE"
-        }
-    } catch {
-        Write-Warning "Attempt $attempt failed: $_"
-        if ($attempt -lt $maxRetries) {
-            Start-Sleep -Seconds $retryDelaySeconds
-        } else {
-            throw "sqlpackage failed after $maxRetries attempts."
-        }
-    }
-
-    $attempt++
-}
-
-Write-Host "Completed successfully."
+  deploy-publish:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: test
+    needs: wait-for-approval
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+    - name: Download Dependencies and Utilities
+      id: download-dependencies
+      uses: ./.github/actions/download-packages
+      with:
+        oidc-role: ${{ vars.oidc_role_arn }}
+        oidc-target-role: ${{ vars.deployment_role_arn }}
+        aws-region: ${{ vars.AWS_REGION }}
