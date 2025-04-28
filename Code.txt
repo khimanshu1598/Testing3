@@ -1,5 +1,3 @@
-# od-gha-files/sqlpackage-runner-fixed.ps1
-
 param (
     [string]$Action,
     [string]$DacpacPath,
@@ -17,8 +15,41 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
-
 Write-Host "Script started. Action: $Action"
+
+# Helper functions
+function Format-SqlCmdVariables {
+    param ([hashtable]$SqlCmdVariables)
+    $result = @()
+    if ($SqlCmdVariables) {
+        foreach ($kv in $SqlCmdVariables.GetEnumerator()) {
+            $result += "/v:$($kv.Key)='$($kv.Value)'"
+        }
+    }
+    return $result
+}
+
+function Format-SqlPackageParameters {
+    param ([hashtable]$SqlPackageParameters)
+    $result = @()
+    if ($SqlPackageParameters) {
+        foreach ($kv in $SqlPackageParameters.GetEnumerator()) {
+            $result += "/p:$($kv.Key)='$($kv.Value)'"
+        }
+    }
+    return $result
+}
+
+function Format-SqlPackageProperties {
+    param ([hashtable]$SqlPackageProperties)
+    $result = @()
+    if ($SqlPackageProperties) {
+        foreach ($kv in $SqlPackageProperties.GetEnumerator()) {
+            $result += "/p:$($kv.Key)='$($kv.Value)'"
+        }
+    }
+    return $result
+}
 
 # Validate sqlpackage.exe
 if (-not (Test-Path $SqlPackagePath)) {
@@ -38,65 +69,14 @@ if ($OutputPath -ne "") {
 $ConnectionString = "Server=$ServerInstance;Database=$DatabaseName;User=$UserName;Password=$Password;Encrypt=True;TrustServerCertificate=True;"
 if ($UseMultiSubnetFailover) { $ConnectionString += "multisubnetfailover=true;" }
 
-# Helper functions
-function Format-SqlCmdVariables {
-    param (
-        [AllowNull()][Parameter(Mandatory=$true)][hashtable]$SqlCmdVariables
-    )
-    $result = @()
-    if ($SqlCmdVariables -ne $null) {
-        foreach ($variable in $SqlCmdVariables.GetEnumerator()) {
-            $result += "/v:$($variable.Name)=$($variable.Value)"
-        }
-    }
-    return $result
-}
-
-function Format-SqlPackageParameters {
-    param (
-        [AllowNull()][Parameter(Mandatory=$true)][hashtable]$Parameters
-    )
-    $result = @()
-    if ($Parameters -ne $null) {
-        foreach ($variable in $Parameters.GetEnumerator()) {
-            if (($variable.Value -is [int]) -or ($variable.Value -is [bool])) {
-                $result += "/$($variable.Name):$($variable.Value)"
-            } else {
-                $result += "/$($variable.Name):'$($variable.Value)'"
-            }
-        }
-    }
-    return $result
-}
-
-function Format-SqlPackageProperties {
-    param (
-        [AllowNull()][Parameter(Mandatory=$true)][hashtable]$Properties
-    )
-    $result = @()
-    if ($Properties -ne $null) {
-        foreach ($variable in $Properties.GetEnumerator()) {
-            if (($variable.Value -is [int]) -or ($variable.Value -is [bool])) {
-                $result += "/p:$($variable.Name)=$($variable.Value)"
-            } else {
-                $result += "/p:$($variable.Name)='$($variable.Value)'"
-            }
-        }
-    }
-    return $result
-}
-
-# Parse JSON inputs into hashtables
+# Parse JSON inputs
 $sqlCmdVariableCollection = @{}
 $sqlPackageParameterCollection = @{}
 $sqlPackagePropertyCollection = @{}
 
 if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
     try {
-        $parsed = ConvertFrom-Json $SQLCmdVariables
-        foreach ($prop in $parsed.PSObject.Properties) {
-            $sqlCmdVariableCollection[$prop.Name] = $prop.Value
-        }
+        $sqlCmdVariableCollection = ConvertFrom-Json $SQLCmdVariables
         Write-Host "Parsed SqlCmdVariables successfully."
     } catch {
         Write-Warning "Failed to parse SqlCmdVariables. Skipping."
@@ -107,10 +87,7 @@ if (![string]::IsNullOrWhiteSpace($SQLCmdVariables)) {
 
 if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
     try {
-        $parsed = ConvertFrom-Json $SQLPackageParameters
-        foreach ($prop in $parsed.PSObject.Properties) {
-            $sqlPackageParameterCollection[$prop.Name] = $prop.Value
-        }
+        $sqlPackageParameterCollection = ConvertFrom-Json $SQLPackageParameters
         Write-Host "Parsed SqlPackageParameters successfully."
     } catch {
         Write-Warning "Failed to parse SqlPackageParameters. Skipping."
@@ -121,10 +98,7 @@ if (![string]::IsNullOrWhiteSpace($SQLPackageParameters)) {
 
 if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
     try {
-        $parsed = ConvertFrom-Json $SQLPackageDeployProperties
-        foreach ($prop in $parsed.PSObject.Properties) {
-            $sqlPackagePropertyCollection[$prop.Name] = $prop.Value
-        }
+        $sqlPackagePropertyCollection = ConvertFrom-Json $SQLPackageDeployProperties
         Write-Host "Parsed SQLPackageDeployProperties successfully."
     } catch {
         Write-Warning "Failed to parse SQLPackageDeployProperties. Skipping."
@@ -133,45 +107,53 @@ if (![string]::IsNullOrWhiteSpace($SQLPackageDeployProperties)) {
     Write-Host "SQLPackageDeployProperties is empty."
 }
 
-# Initialize params
+# Initialize parameters
 $params = @()
 
 switch ($Action.ToLower()) {
     "extract" {
         if (-not $OutputPath) { throw "OutputPath is required for Extract" }
-        $params += "/Action:Extract", "/TargetFile:$OutputPath", "/SourceConnectionString:$ConnectionString"
-        $params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
+        $params += "/Action:Extract"
+        $params += "/TargetFile:$OutputPath"
+        $params += "/SourceConnectionString:$ConnectionString"
     }
     "deployreport" {
         if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for DeployReport" }
-        $params += "/Action:DeployReport", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
+        $params += "/Action:DeployReport"
+        $params += "/SourceFile:$DacpacPath"
+        $params += "/TargetConnectionString:$ConnectionString"
+        $params += "/OutputPath:$OutputPath"
         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-        $params += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
-        $params += Format-SqlPackageParameters -Parameters $sqlPackageParameterCollection
-        $params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
     }
     "script" {
         if (-not $OutputPath -or -not $DacpacPath) { throw "OutputPath and DacpacPath required for Script" }
-        $params += "/Action:Script", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString", "/OutputPath:$OutputPath"
+        $params += "/Action:Script"
+        $params += "/SourceFile:$DacpacPath"
+        $params += "/TargetConnectionString:$ConnectionString"
+        $params += "/OutputPath:$OutputPath"
         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-        $params += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
-        $params += Format-SqlPackageParameters -Parameters $sqlPackageParameterCollection
-        $params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
     }
     "publish" {
         if (-not $DacpacPath) { throw "DacpacPath required for Publish" }
-        $params += "/Action:Publish", "/SourceFile:$DacpacPath", "/TargetConnectionString:$ConnectionString"
+        $params += "/Action:Publish"
+        $params += "/SourceFile:$DacpacPath"
+        $params += "/TargetConnectionString:$ConnectionString"
         if ($PublishProfilePath) { $params += "/Profile:$PublishProfilePath" }
-        $params += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
-        $params += Format-SqlPackageParameters -Parameters $sqlPackageParameterCollection
-        $params += Format-SqlPackageProperties -Properties $sqlPackagePropertyCollection
     }
     default { throw "Unsupported Action: $Action" }
 }
 
-# Execute
-Write-Host "Running sqlpackage.exe with parameters: $($params -join ' ')"
+# Add parsed SQLCMD variables, parameters, and properties
+$params += Format-SqlCmdVariables -SqlCmdVariables $sqlCmdVariableCollection
+$params += Format-SqlPackageParameters -SqlPackageParameters $sqlPackageParameterCollection
+$params += Format-SqlPackageProperties -SqlPackageProperties $sqlPackagePropertyCollection
 
+# Final command output
+Write-Host ""
+Write-Host "Running sqlpackage.exe with parameters: $($params -join ' ')"
+Write-Host ""
+
+# Retry Logic
 $maxRetries = 3
 $retryDelaySeconds = 5
 $attempt = 1
@@ -179,8 +161,10 @@ $success = $false
 
 while ($attempt -le $maxRetries -and -not $success) {
     Write-Host "Attempt ${attempt} of ${maxRetries}: Running sqlpackage.exe..."
+
     try {
         & $SqlPackagePath @params
+
         if ($LASTEXITCODE -eq 0) {
             $success = $true
             Write-Host "sqlpackage executed successfully on attempt $attempt"
@@ -199,158 +183,118 @@ while ($attempt -le $maxRetries -and -not $success) {
     $attempt++
 }
 
-Write-Host "Completed successfully"
+Write-Host "Completed successfully."
 
+=========================================
 
-
-==============
-
-name: 'Build Output path and Run the DACPAC Deployment script'
-description: 'Using sqlpackage.exe to run DACPAC operations - DeployReport, Script, Extract, Publish'
+name: 'Build Output Path and Run DACPAC Deployment Script'
+description: 'Uses sqlpackage.exe to perform DACPAC actions: DeployReport, Script, Extract, Publish.'
 
 inputs:
   ArtifactDownloadPath:
-    description: 'Path where the artifacts will be stored'
+    description: 'Path to store the generated artifacts (like deploy reports, scripts).'
     required: true
   DatabaseName:
-    description: 'The database name the DACPAC is being applied against'
+    description: 'The name of the target database.'
     required: true
   ReleaseNumber:
-    description: 'Release number of the build'
+    description: 'The release number for the deployment.'
     required: true
   FileName:
-    description: 'The name of the output file'
+    description: 'Output file name for generated reports or scripts.'
     required: true
-  targetServer:
-    description: 'The host to deploy the DACPAC to'
+  TargetServer:
+    description: 'Target server where DACPAC will be deployed.'
     required: true
   Action:
-    description: 'The sqlpackage.exe action to execute: DeployReport, Script, Extract, Publish'
+    description: 'The sqlpackage.exe action to perform (extract, deployreport, script, publish).'
     required: true
   PublishProfileFilePath:
-    description: 'The fully qualified path of the Publish Profile to use'
+    description: 'Full path to the Publish Profile XML file.'
     required: true
   GithubActor:
-    description: 'GitHub Actor triggering the build'
+    description: 'GitHub actor who triggered the workflow.'
     required: true
   SQLPackageDeployProperties:
-    description: 'JSON string for SQLPackage properties. Example: {"PropertyName":"Value"}'
+    description: 'JSON string of sqlpackage.exe properties (e.g., {"PropertyName":"Value"}).'
     required: true
   SQLCMDVariables:
-    description: 'JSON string for SQLCMD variables. Example: {"VariableName":"Value"}'
+    description: 'JSON string of SQLCMD variables (e.g., {"VariableName":"Value"}).'
     required: true
   SQLPackageParameters:
-    description: 'JSON string for SQLPackage parameters. Example: {"ParameterName":"Value"}'
+    description: 'JSON string of sqlpackage.exe parameters (e.g., {"ParameterName":"Value"}).'
     required: true
   SqlPackagePath:
-    description: 'Full path to sqlpackage.exe'
+    description: 'Path to sqlpackage.exe binary.'
     required: true
   DacpacPath:
-    description: 'Full path to the DACPAC file'
+    description: 'Path to the .dacpac file (optional for Extract action).'
     required: false
   UserName:
-    description: 'SQL username to authenticate'
+    description: 'SQL authentication username.'
     required: true
 
 runs:
-  using: composite
+  using: "composite"
   steps:
-    - name: Build output path and run DACPAC deployment script
+    - name: Run DACPAC Deployment
       shell: powershell
       env:
         ArtifactDownloadPath: ${{ inputs.ArtifactDownloadPath }}
         DatabaseName: ${{ inputs.DatabaseName }}
         ReleaseNumber: ${{ inputs.ReleaseNumber }}
         FileName: ${{ inputs.FileName }}
-        targetServer: ${{ inputs.targetServer }}
+        TargetServer: ${{ inputs.TargetServer }}
         Action: ${{ inputs.Action }}
         PublishProfileFilePath: ${{ inputs.PublishProfileFilePath }}
         GithubActor: ${{ inputs.GithubActor }}
         SQLPackageDeployProperties: ${{ inputs.SQLPackageDeployProperties }}
         SQLCMDVariables: ${{ inputs.SQLCMDVariables }}
         SQLPackageParameters: ${{ inputs.SQLPackageParameters }}
+        SqlPackagePath: ${{ inputs.SqlPackagePath }}
+        DacpacPath: ${{ inputs.DacpacPath }}
+        UserName: ${{ inputs.UserName }}
       run: |
         $ErrorActionPreference = "Stop"
 
-        # Replace Octopus variable if exists
-        $SQLCMDVariablesUpdated = $env:SQLCMDVariables -replace '#{Octopus.Release.Number}', $env:ReleaseNumber
+        Write-Host "Preparing environment for Action: $env:Action"
 
-        function Format-JsonAsHashtable {
-          param([string]$JsonString)
-          if ([string]::IsNullOrWhiteSpace($JsonString)) {
-            return @{}
-          }
-          try {
-            return ($JsonString | ConvertFrom-Json -AsHashtable)
-          } catch {
-            Write-Host "Warning: Failed to parse JSON. Returning empty hashtable."
-            return @{}
-          }
-        }
-
-        $parsedSqlPackageDeployProperties = Format-JsonAsHashtable -JsonString $env:SQLPackageDeployProperties
-        $parsedSqlCMDVariables = Format-JsonAsHashtable -JsonString $SQLCMDVariablesUpdated
-        $parsedSqlPackageParameters = Format-JsonAsHashtable -JsonString $env:SQLPackageParameters
-
-        $matrixJson = "$env:MATRIX_INSTANCE_LIST"
-        if (-not ($matrixJson.Trim().StartsWith('['))) {
-          $matrixJson = @($matrixJson | ConvertFrom-Json) | ConvertTo-Json -Compress
-        }
-
-        Write-Host "MATRIX_INSTANCE_LIST: $matrixJson"
-        $parsedMatrix = $matrixJson | ConvertFrom-Json
-        $allOutputPaths = ""
-
-        foreach ($item in $parsedMatrix) {
-          $instance = $item.instance
-          $dbServer = $item.dbServerName
-          $role = $item.role
-          Write-Host ("Running Action: {0}, Instance: {1}, Role: {2}, DB Server: {3}" -f $env:Action, $instance, $role, $dbServer)
-
-          $OutputFilePath = ""
-          if ($env:Action -in @("DeployReport", "Script")) {
-            $OutputFolder = Join-Path $env:ArtifactDownloadPath "deployreports"
-            $OutputFileName = "$($env:DatabaseName).$($env:ReleaseNumber).$role.$($env:FileName)"
-            $OutputFilePath = Join-Path $OutputFolder $OutputFileName
-
-            $outputFileNameOnly = Split-Path $OutputFilePath -Leaf
-            $outputDirectoryOnly = Split-Path $OutputFilePath -Parent
-
-            $sanitizedTargetServer = $env:targetServer.TrimEnd('.')
-            $outputFileNameOnlyWithDB = $outputFileNameOnly.Replace('[DatabaseName]', $env:DatabaseName).TrimStart('.')
-            $OutputFilePath = Join-Path $outputDirectoryOnly "$sanitizedTargetServer.$outputFileNameOnlyWithDB"
-
-            if (!(Test-Path (Split-Path $OutputFilePath))) {
-              New-Item -ItemType Directory -Path (Split-Path $OutputFilePath) -Force
+        # Handle Output Path
+        $OutputFilePath = ""
+        if ($env:Action -in @('DeployReport', 'Script')) {
+            $outputDir = Join-Path $env:ArtifactDownloadPath "deployreports"
+            if (-not (Test-Path $outputDir)) {
+                New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
             }
-            $allOutputPaths += "$OutputFilePath,"
-          }
+            $sanitizedTargetServer = $env:TargetServer.TrimEnd('.')
+            $outputFile = "$($sanitizedTargetServer).$($env:DatabaseName).$($env:ReleaseNumber).$($env:FileName)"
+            $OutputFilePath = Join-Path $outputDir $outputFile
+            Write-Host "Calculated OutputPath: $OutputFilePath"
+        }
 
-          # Update DBVersion inside Publish Profile
-          $xml = [xml](Get-Content $env:PublishProfileFilePath)
-          $xml.Project.ItemGroup.SqlCmdVariable | Where-Object { $_.Include -eq 'DBVersion' } | ForEach-Object {
-            $_.Value = "$env:RELEASE_NUMBER - GitHub Actions by $env:GITHUB_ACTOR ($env:GITHUB_ACTOR)"
+        # Update Publish Profile DBVersion (for DeployReport and Script actions)
+        if ($env:Action -in @('DeployReport', 'Script')) {
+          $publishProfilePath = $env:PublishProfileFilePath
+          [xml]$xml = Get-Content $publishProfilePath
+          $xml.Project.ItemGroup.SqlCmdVariable | Where-Object { $_.Include -eq "DBVersion" } | ForEach-Object {
+              $_.Value = "$env:ReleaseNumber - GitHub Actions by $env:GithubActor"
           }
-          $xml.Save($env:PublishProfileFilePath)
+          $xml.Save($publishProfilePath)
+          Write-Host "Updated DBVersion in PublishProfile."
+        }
 
-          # Call main sqlpackage-runner script
-          & $env:scriptPath `
+        # Call the sqlpackage-runner script
+        & $env:GITHUB_WORKSPACE\od-gha-files\sqlpackage-runner-fixed.ps1 `
             -Action $env:Action `
-            -DacpacPath "${{ inputs.DacpacPath }}" `
-            -OutputPath "$OutputFilePath" `
-            -ServerInstance "$dbServer" `
-            -DatabaseName "${{ inputs.DatabaseName }}" `
-            -UserName "${{ inputs.UserName }}" `
+            -DacpacPath $env:DacpacPath `
+            -OutputPath $OutputFilePath `
+            -ServerInstance $env:TargetServer `
+            -DatabaseName $env:DatabaseName `
+            -UserName $env:UserName `
             -Password $env:retrievedPassword `
-            -SqlPackagePath "${{ inputs.SqlPackagePath }}" `
-            -PublishProfilePath "${{ inputs.PublishProfileFilePath }}" `
-            -UseMultiSubnetFailover "${{ inputs.UseMultiSubnetFailover }}" `
-            -SQLPackageDeployProperties ($parsedSqlPackageDeployProperties | ConvertTo-Json -Compress) `
-            -SQLCmdVariables ($parsedSqlCMDVariables | ConvertTo-Json -Compress) `
-            -SQLPackageParameters ($parsedSqlPackageParameters | ConvertTo-Json -Compress)
-        }
-
-        if ($env:Action -in @("DeployReport", "Script")) {
-          $allOutputPaths = $allOutputPaths.TrimEnd(',')
-          "OutPutPath=$allOutputPaths" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        }
+            -SqlPackagePath $env:SqlPackagePath `
+            -PublishProfilePath $env:PublishProfileFilePath `
+            -UseMultiSubnetFailover "true" `
+            -SQLPackageDeployProperties $env:SQLPackageDeployProperties `
+            -SQLCmdVariables $env:SQLCMDVariables `
+            -SQLPackageParameters $env:SQLPackageParameters
