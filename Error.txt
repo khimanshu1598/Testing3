@@ -1,65 +1,108 @@
-- name: SQL Deploy Report Check
-  id: sql-deploy-report-check
-  shell: powershell
-  run: |
-    $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
-    $pathsArray = $env:OutPutPath -split ','
+SqlDeployReportCheck.ps1 Code is below: -
 
-    foreach ($path in $pathsArray) {
-      powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
-    }
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$DeployReportPath
+)
+
+$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="https://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
+
+if (-not (Test-Path $DeployReportPath)) {
+    Write-Output "ERROR: Deploy report file not found at: $DeployReportPath"
+    exit 1
+}
+
+$deployReportContent = Get-Content $DeployReportPath -Raw
+
+if ($deployReportContent -eq $NoChangesReport) {
+    Write-Output "No change detected in database. Deploy report matches baseline."
+    $ApprovalRequired = "false"
+} else {
+    Write-Output "Change detected in database! Deploy report differs from baseline."
+    $ApprovalRequired = "true"
+}
+
+if ($env:GITHUB_ENV) {
+    "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+}
+
+#######################
+
+    - name: SQL Deploy Report Check
+      id: sql-deploy-report-check
+      shell: powershell
+      run: |
+        $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
+        $pathsArray = $env:OutPutPath -split ','
     
-    # Set both environment variable and job output
-    echo "ApprovalRequired=$env:ApprovalRequired" >> $GITHUB_OUTPUT
-    echo "Approval_Required=$env:ApprovalRequired" >> $GITHUB_OUTPUT  # For backward compatibility if needed
+        foreach ($path in $pathsArray) {
+          powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+        }
+        
+        # Set both environment variable and job output
+        echo "ApprovalRequired=$env:ApprovalRequired" >> $env:GITHUB_OUTPUT
+        echo "approval_required=$env:ApprovalRequired" >> $env:GITHUB_OUTPUT
 
 
-- name: Slack - Manual Approval Notification
-  id: manual_approval_notification
-  if: ${{ env.ApprovalRequired == 'true' || needs.generate-deploy-report-deploy-script.outputs.Approval_Required == 'true' }}
-  shell: bash
-  run: |
-    curl -X POST -H 'Content-type: application/json' \
-    --data '{"text":"*EmployeeInvitation database deployment requires manual approval* \n<${{ github.server_url }}/${{ github.repository }}/actions|${{ github.event.repository.name }}> database deployment requires manual approval for release <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ env.RELEASE_NUMBER }}> to ${{ vars.ENVIRONMENT }}"}' \
-    "$SLACK_WEBHOOK_URL"
+    - name: Verify Approval Required Status
+      id: verify-approval
+      shell: powershell
+      run: |
+        echo "ApprovalRequired from env: ${{ env.ApprovalRequired }}"
+        echo "ApprovalRequired from outputs: ${{ steps.sql-deploy-report-check.outputs.ApprovalRequired }}"
+        echo "approval_required from outputs: ${{ steps.sql-deploy-report-check.outputs.approval_required }}"
 
-- name: Slack - Manual Approval Notification for Artifacts Review
-  id: manual_approval_notification_artifacts_review
-  if: ${{ (env.ApprovalRequired == 'true' || needs.generate-deploy-report-deploy-script.outputs.Approval_Required == 'true') && env.ADD_ARTIFACTS_TO_RELEASE == 'true' }}
-  shell: bash
-  run: |
-    curl -X POST -H 'Content-type: application/json' \
-    --data '{"text":"*Review Deployment Artifacts* \nReview the DACPAC Deploy Report and Deploy Script: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ env.ARTIFACT_ID }}|Click Here>"}' \
-    "$SLACK_WEBHOOK_URL"
+    - name: Slack - Manual Approval Notification
+      id: manual_approval_notification
+      if: |
+        ${{ 
+          env.ApprovalRequired == 'true' || steps.sql-deploy-report-check.outputs.ApprovalRequired == 'true' || steps.sql-deploy-report-check.outputs.approval_required == 'true' }}
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*EmployeeInvitation database deployment requires manual approval* \n<${{ github.server_url }}/${{ github.repository }}/actions|${{ github.event.repository.name }}> database deployment requires manual approval for release <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ env.RELEASE_NUMBER }}> to ${{ vars.ENVIRONMENT }}"}' \
+        "$SLACK_WEBHOOK_URL"
+      
+    - name: Slack - Manual Approval Notification for Artifacts Review
+      id: manual_approval_notification_artifacts_review
+      if: |
+        ${{ 
+          (env.ApprovalRequired == 'true' || steps.sql-deploy-report-check.outputs.ApprovalRequired == 'true' || steps.sql-deploy-report-check.outputs.approval_required == 'true') && env.ADD_ARTIFACTS_TO_RELEASE == 'true' }}
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*Review Deployment Artifacts* \nReview the DACPAC Deploy Report and Deploy Script: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ env.ARTIFACT_ID }}|Click Here>"}' \
+        "$SLACK_WEBHOOK_URL"
 
+  wait-for-approval:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: approval
+    needs: generate-deploy-report-deploy-script
+    if: ${{ needs.generate-deploy-report-deploy-script.outputs.ApprovalRequired == 'true' || needs.generate-deploy-report-deploy-script.outputs.approval_required == 'true' }}
+    steps:
+    - name: Display Output
+      run: |
+        echo "Approval required: ${{ needs.generate-deploy-report-deploy-script.outputs.ApprovalRequired }}"
+    - name: "Review - Deploy Report and Deploy Script"
+      run: |
+        echo "The request has been approved by the approvers. Proceeding with next steps"
 
-wait-for-approval:
-  runs-on: [ self-hosted, windows, runners-us-west-2 ]
-  environment: approval
-  needs: generate-deploy-report-deploy-script
-  if: ${{ needs.generate-deploy-report-deploy-script.outputs.Approval_Required == 'true' || env.ApprovalRequired == 'true' }}
-  steps:
-  - name: Display Output
-    run: echo "Approval required: ${{ needs.generate-deploy-report-deploy-script.outputs.Approval_Required }}"
-  - name: "Review - Deploy Report and Deploy Script"
-    run: |
-      echo "The request has been approved by the approvers. Proceeding with next steps"
-
-
-deploy-publish:
-  runs-on: [ self-hosted, windows, runners-us-west-2 ]
-  environment: test
-  needs: 
-    - generate-deploy-report-deploy-script
-    - wait-for-approval
-  if: ${{ needs.wait-for-approval.result == 'success' || needs.wait-for-approval.result == 'skipped' }}
-  steps:
-    - name: "Checkout"
-      uses: actions/checkout@v4
-    - name: Download Dependencies and Utilities
-      id: download-dependencies
-      uses: ./.github/actions/download-packages
-      with:
-        oidc-role: ${{ vars.oidc_role_arn }}
-        oidc-target-role: ${{ vars.deployment_role_arn }}
-        aws-region: ${{ vars.AWS_REGION }}
+  deploy-publish:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: test
+    needs: 
+      - generate-deploy-report-deploy-script
+      - wait-for-approval
+    if: ${{ 
+      (needs.generate-deploy-script.outputs.ApprovalRequired == 'false' || needs.generate-deploy-script.outputs.approval_required == 'false') || (needs.wait-for-approval.result == 'success')
+      }}
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+      - name: Download Dependencies and Utilities
+        id: download-dependencies
+        uses: ./.github/actions/download-packages
+        with:
+          oidc-role: ${{ vars.oidc_role_arn }}
+          oidc-target-role: ${{ vars.deployment_role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
