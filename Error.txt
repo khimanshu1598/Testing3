@@ -164,3 +164,31 @@ jobs:
         oidc-role: ${{ vars.oidc_role_arn }}
         oidc-target-role: ${{ vars.deployment_role_arn }}
         aws-region: ${{ vars.AWS_REGION }}
+
+###############################################
+
+- name: SQL Deploy Report Check
+  id: sql-deploy-report-check
+  shell: powershell
+  run: |
+    $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
+    $pathsArray = $env:OutPutPath -split ','
+
+    foreach ($path in $pathsArray) {
+      powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+    }
+
+    # Extra Safety: Trim any whitespace
+    $ApprovalRequired = $env:ApprovalRequired.Trim()
+
+    # Log for debug
+    Write-Host "ApprovalRequired final value: '$ApprovalRequired'"
+
+    # Correct Output for GitHub Actions
+    "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+
+- name: Print GITHUB_OUTPUT for debug
+  shell: powershell
+  run: Get-Content $env:GITHUB_OUTPUT
+
