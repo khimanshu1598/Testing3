@@ -1,13 +1,28 @@
- # Define paths and variables
-$SqlPackagePath = "C:\Program Files (x86)\Microsoft SQL Server\140\DAC\bin\SqlPackage.exe"
+# Define paths and variables
+$SqlPackagePath = "C:\Users\tusharkantilal.varma\sqlpackage\SqlPackage.exe"
 $PublishProfile = "C:\temp\ExtractedPackage\abc-uat.publish.xml"
 $DacpacPath = "C:\temp\ExtractedPackage\Employee.Invitation.Database.Build.dacpac"
 $DbVersion = "494"
-$ContributorArgs = "CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
-$TargetConnectionString = "Server=GSQN-ABCDE.uat.aws.abc.com;Database=EmployeeInvitation;User=HimanshuSuccessUser;Password=abcdewrede;Encrypt=True;TrustServerCertificate=True;multisubnetfailover=true"
+$ContributorArgs = "AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
+$TargetConnectionString = "Server=GSQN-ABCDE.uat.aws.abc.com;Database=EmployeeInvitation;User=HimanshuSuccessUser;Password=abcderfe;Encrypt=True;TrustServerCertificate=True;multisubnetfailover=true"
 # Build the argument string
 $arguments = @"
 /Action:Publish /Profile:""$PublishProfile"" /Variables:DBversion='$DbVersion' /p:AdditionalDeploymentContributorArguments='$ContributorArgs' /SourceFile:""$DacpacPath"" /TargetConnectionString:""$TargetConnectionString""
 "@
 # Execute SqlPackage.exe with arguments
-Start-Process -FilePath $SqlPackagePath -ArgumentList $arguments -NoNewWindow -Wait 
+Start-Process -FilePath $SqlPackagePath -ArgumentList $arguments -NoNewWindow -Wait
+# Create a process start info
+$processStartInfo = New-Object System.Diagnostics.ProcessStartInfo
+$processStartInfo.FileName = $SqlPackagePath
+$processStartInfo.Arguments = $arguments
+$processStartInfo.RedirectStandardOutput = $true
+$processStartInfo.RedirectStandardError = $true
+$processStartInfo.UseShellExecute = $false
+$processStartInfo.CreateNoWindow = $true
+# Start the process
+$process = [System.Diagnostics.Process]::Start($processStartInfo)
+# Stream output and error to the console in real-time
+$process.StandardOutput.ReadToEndAsync() | Out-Host
+$process.StandardError.ReadToEndAsync() | Out-Host
+# Wait for the process to finish
+$process.WaitForExit()
