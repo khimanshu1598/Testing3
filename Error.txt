@@ -3,15 +3,15 @@ $SqlPackagePath = "C:\Users\tusharkantilal.varma\sqlpackage\SqlPackage.exe"
 $PublishProfile = "C:\temp\ExtractedPackage\abc-uat.publish.xml"
 $DacpacPath = "C:\temp\ExtractedPackage\Employee.Invitation.Database.Build.dacpac"
 $DbVersion = "494"
-$ContributorArgs = "AdditionalDeploymentContributorArguments='CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
+$ContributorArgs = "CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
 $TargetConnectionString = "Server=GSQN-ABCDE.uat.aws.abc.com;Database=EmployeeInvitation;User=HimanshuSuccessUser;Password=abcderfe;Encrypt=True;TrustServerCertificate=True;multisubnetfailover=true"
-# Build the argument string
+
+# Build full argument string (no weird nesting)
 $arguments = @"
-/Action:Publish /Profile:""$PublishProfile"" /Variables:DBversion='$DbVersion' /p:AdditionalDeploymentContributorArguments='$ContributorArgs' /SourceFile:""$DacpacPath"" /TargetConnectionString:""$TargetConnectionString""
-"@
-# Execute SqlPackage.exe with arguments
-Start-Process -FilePath $SqlPackagePath -ArgumentList $arguments -NoNewWindow -Wait
-# Create a process start info
+/Action:Publish /Profile:""$PublishProfile"" /Variables:DBversion=$DbVersion /p:AdditionalDeploymentContributorArguments=""$ContributorArgs"" /SourceFile:""$DacpacPath"" /TargetConnectionString:""$TargetConnectionString""
+"@.Trim()
+
+# Set up process start info
 $processStartInfo = New-Object System.Diagnostics.ProcessStartInfo
 $processStartInfo.FileName = $SqlPackagePath
 $processStartInfo.Arguments = $arguments
@@ -19,10 +19,19 @@ $processStartInfo.RedirectStandardOutput = $true
 $processStartInfo.RedirectStandardError = $true
 $processStartInfo.UseShellExecute = $false
 $processStartInfo.CreateNoWindow = $true
+
 # Start the process
 $process = [System.Diagnostics.Process]::Start($processStartInfo)
-# Stream output and error to the console in real-time
-$process.StandardOutput.ReadToEndAsync() | Out-Host
-$process.StandardError.ReadToEndAsync() | Out-Host
-# Wait for the process to finish
+
+# Read output and error
+$stdout = $process.StandardOutput.ReadToEnd()
+$stderr = $process.StandardError.ReadToEnd()
+
+# Show output
+Write-Host "`n[OUTPUT]`n$stdout"
+if ($stderr) {
+    Write-Host "`n[ERROR]`n$stderr" -ForegroundColor Red
+}
+
+# Wait for it to finish
 $process.WaitForExit()
