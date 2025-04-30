@@ -1,38 +1,48 @@
-- name: SQL Deploy Report Check
-  id: sql-deploy-report-check
-  shell: powershell
-  run: |
-    $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
-    $pathsArray = $env:OutPutPath -split ','
-    $finalApprovalRequired = "false"  # Default value
-    
-    foreach ($path in $pathsArray) {
-      # Capture the script output and exit code
-      $output = & powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path 2>&1
-      $exitCode = $LASTEXITCODE
-      
-      Write-Host "Script output for $path : $output"
-      Write-Host "Exit code: $exitCode"
-      
-      # If any path requires approval, set final value to true
-      if ($exitCode -eq 0 -and $env:ApprovalRequired -eq "true") {
-        $finalApprovalRequired = "true"
-      }
-    }
-    
-    # Print the final value for verification
-    Write-Host "Final ApprovalRequired value: $finalApprovalRequired"
-    
-    # Set outputs (using consistent naming)
-    echo "ApprovalRequired=$finalApprovalRequired" >> $env:GITHUB_OUTPUT
-    echo "approval_required=$finalApprovalRequired" >> $env:GITHUB_OUTPUT
-    
-    # Also set as environment variable for current job
-    echo "ApprovalRequired=$finalApprovalRequired" >> $env:GITHUB_ENV
+name: Employee Invitation Github Workflow
 
-- name: Verify Outputs
-  shell: bash
-  run: |
-    echo "ApprovalRequired output: ${{ steps.sql-deploy-report-check.outputs.ApprovalRequired }}"
-    echo "approval_required output: ${{ steps.sql-deploy-report-check.outputs.approval_required }}"
-    echo "Environment ApprovalRequired: $ApprovalRequired"
+on:
+  pull_request:
+    paths:
+    - '.github/workflows/employee_invitation_workflow.yml'
+  workflow_dispatch:
+  
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
+  
+
+env:
+  DACPAC_OUTPUT_DIR: 'C:\dacpac-extracts'
+  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
+  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
+  OD_GHA_FILE_PATH: "od-gha-files"
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  DB_NAME: ${{ vars.DB_NAME }}
+  NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
+  NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
+  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
+  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
+  PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
+  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
+  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
+  RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
+  DACPAC_ENVIRONMENT: ${{ vars.DACPAC_ENVIRONMENT }}
+  ENVIRONMENT: ${{ vars.ENVIRONMENT }}
+  SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+  SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
+  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS }}
+
+jobs:
+  generate-deploy-report-deploy-script:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: test
+    outputs:
+      ApprovalRequired: ${{ steps.sql-deploy-report-check.outputs.ApprovalRequired }}
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
