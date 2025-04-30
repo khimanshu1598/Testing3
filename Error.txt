@@ -1,37 +1,57 @@
-# Define paths and variables
-$SqlPackagePath = "C:\Users\tusharkantilal.varma\sqlpackage\SqlPackage.exe"
-$PublishProfile = "C:\temp\ExtractedPackage\abc-uat.publish.xml"
-$DacpacPath = "C:\temp\ExtractedPackage\Employee.Invitation.Database.Build.dacpac"
-$DbVersion = "494"
-$ContributorArgs = "CreateIndexOperationalPropsModifier.Online=ON;CreateIndexOperationalPropsModifier.MAXDOP=2"
-$TargetConnectionString = "Server=GSQN-ABCDE.uat.aws.abc.com;Database=EmployeeInvitation;User=HimanshuSuccessUser;Password=abcderfe;Encrypt=True;TrustServerCertificate=True;multisubnetfailover=true"
+    - name: Slack - Manual Approval Notification
+      id: manual_approval_notification
+      if: ${{ env.ApprovalRequired == 'true' }}
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*EmployeeInvitation database deployment requires manual approval* \n<${{ github.server_url }}/${{ github.repository }}/actions|${{ github.event.repository.name }}> database deployment requires manual approval for release <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ env.RELEASE_NUMBER }}> to ${{ vars.ENVIRONMENT }}"}' \
+        "$SLACK_WEBHOOK_URL"
+      
+    - name: Slack - Manual Approval Notification for Artifacts Review
+      id: manual_approval_notification_artifacts_review
+      if: ${{ env.ApprovalRequired == 'true' && env.ADD_ARTIFACTS_TO_RELEASE == 'true' }}
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*Review Deployment Artifacts* \nReview the DACPAC Deploy Report and Deploy Script: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ env.ARTIFACT_ID }}|Click Here>"}' \
+        "$SLACK_WEBHOOK_URL"
 
-# Build full argument string (no weird nesting)
-$arguments = @"
-/Action:Publish /Profile:""$PublishProfile"" /Variables:DBversion=$DbVersion /p:AdditionalDeploymentContributorArguments=""$ContributorArgs"" /SourceFile:""$DacpacPath"" /TargetConnectionString:""$TargetConnectionString""
-"@.Trim()
+  wait-for-approval:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: approval
+    needs: generate-deploy-report-deploy-script
+    if: ${{ needs.generate-deploy-report-deploy-script.outputs.ApprovalRequired == 'true' }}
+    steps:
+    - name: "Review - Deploy Report and Deploy Script"
+      run: |
+        echo "The request has been approved by the approvers. Proceeding with next steps"
 
-# Set up process start info
-$processStartInfo = New-Object System.Diagnostics.ProcessStartInfo
-$processStartInfo.FileName = $SqlPackagePath
-$processStartInfo.Arguments = $arguments
-$processStartInfo.RedirectStandardOutput = $true
-$processStartInfo.RedirectStandardError = $true
-$processStartInfo.UseShellExecute = $false
-$processStartInfo.CreateNoWindow = $true
+#################################################
 
-# Start the process
-$process = [System.Diagnostics.Process]::Start($processStartInfo)
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$DeployReportPath
+)
 
-# Read output and error
-$stdout = $process.StandardOutput.ReadToEnd()
-$stderr = $process.StandardError.ReadToEnd()
+$NoChangesReport = '<?xml version="1.0" encoding="utf-8"?><DeploymentReport xmlns="http://schemas.microsoft.com/sqlserver/dac/DeployReport/2012/02"><Alerts /></DeploymentReport>'
 
-# Show output
-Write-Host "`n[OUTPUT]`n$stdout"
-if ($stderr) {
-    Write-Host "`n[ERROR]`n$stderr" -ForegroundColor Red
+if (-not (Test-Path $DeployReportPath)) {
+    Write-Output "ERROR: Deploy report file not found at: $DeployReportPath"
+    exit 1
 }
 
-# Wait for it to finish
-$process.WaitForExit()
+$deployReportContent = Get-Content $DeployReportPath -Raw
+
+
+
+if ($deployReportContent -eq $NoChangesReport) {
+    Write-Output "No change detected in database. Deploy report matches baseline."
+    $ApprovalRequired = "false"
+} else {
+    Write-Output "Change detected in database! Deploy report differs from baseline."
+    $ApprovalRequired = "true"
+}
+
+if ($env:GITHUB_ENV) {
+    "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+}
