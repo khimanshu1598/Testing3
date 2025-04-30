@@ -55,3 +55,30 @@ if ($deployReportContent -eq $NoChangesReport) {
 if ($env:GITHUB_ENV) {
     "ApprovalRequired=$ApprovalRequired" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 }
+
+#######################################
+
+    - name: SQL Deploy Report Check
+      id: sql-deploy-report-check
+      shell: powershell
+      run: |
+        $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
+        $pathsArray = $env:OutPutPath -split ','
+    
+        $ApprovalRequired = $false
+    
+        foreach ($path in $pathsArray) {
+          $output = powershell -ExecutionPolicy Bypass -File $scriptPath -DeployReportPath $path
+          Write-Host "DeployReportCheck Output: $output"
+    
+          if ($output -match "Change detected in database") {
+            $ApprovalRequired = $true
+          }
+        }
+    
+        # Now ApprovalRequired is properly set
+        if ($ApprovalRequired) {
+          "ApprovalRequired=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        } else {
+          "ApprovalRequired=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        }
