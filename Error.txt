@@ -26,6 +26,24 @@
       run: |
         echo "The request has been approved by the approvers. Proceeding with next steps"
 
+  deploy-publish:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: test
+    needs: 
+      - generate-deploy-report-deploy-script
+      - wait-for-approval
+    if: ${{ (needs.generate-deploy-report-deploy-script.outputs.approval-required == 'false') || (needs.wait-for-approval.result == 'success' || 'skipped') }}
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+      - name: Download Dependencies and Utilities
+        id: download-dependencies
+        uses: ./.github/actions/download-packages
+        with:
+          oidc-role: ${{ vars.oidc_role_arn }}
+          oidc-target-role: ${{ vars.deployment_role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
+
 #################################################
 
 param(
