@@ -1,83 +1,45 @@
-param (
-    [string]$Channel,
-    [string]$Username,
-    [string]$HookUrl,
-    [string]$DeploymentError = "",
-    [string]$ProjectName = "",
-    [string]$ReleaseNumber = "",
-    [string]$EnvironmentName = "",
-    [string]$TargetRoles = "",
-    [string]$TenantName = "",
-    [string]$DeploymentLink = "",
-    [string]$ProjectLink = "",
-    [string]$ReleaseLink = ""
-)
+name: Global Tax Mapper Github Workflow
 
-function Slack-Rich-Notification ($notification)
-{
-    $payload = @{
-        channel    = $Channel
-        username   = $Username
-        attachments = @(
-            @{
-                fallback = $notification["fallback"]
-                color    = $notification["color"]
-                fields   = @(
-                    @{
-                        title      = $notification["title"]
-                        title_link = $notification["title_link"]
-                        value      = $notification["value"]
-                    }
-                )
-            }
-        )
-    }
+on:
+    pull_request:
+      paths:
+        - '.github/workflows/global-tax-mapper-workflow.yaml'
+        - '.github/actions/**'
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-RestMethod -Method POST -Body ($payload | ConvertTo-Json -Depth 4) -Uri $HookUrl -ContentType 'application/json'
-}
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
 
-# Format tenant suffix
-$TenantSuffix = if ($TenantName) { "for tenant $TenantName" } else { "" }
-
-# Build the Slack message value
-$messageValue = "Deploy <$ProjectLink|$ProjectName> release <$ReleaseLink|$ReleaseNumber> to $EnvironmentName $TargetRoles $TenantSuffix".Trim()
-
-# Send success or failure notification
-if (-not $DeploymentError) {
-    Slack-Rich-Notification @{
-        title      = "Success"
-        title_link = $DeploymentLink
-        value      = $messageValue
-        fallback   = "Deployed $ProjectName release $ReleaseNumber to $EnvironmentName successfully $TenantSuffix"
-        color      = "good"
-    }
-} else {
-    Slack-Rich-Notification @{
-        title      = "Failed"
-        title_link = $DeploymentLink
-        value      = $messageValue
-        fallback   = "Failed to deploy $ProjectName release $ReleaseNumber to $EnvironmentName $TenantSuffix"
-        color      = "danger"
-    }
-}
-
-
-####################################
-
-      - name: Send Slack Notification
-        shell: pwsh
-        run: |
-          ./scripts/send-slack-notification.ps1 `
-            -Channel '${{ secrets.SLACK_CHANNEL }}' `
-            -Username 'GitHub Actions Bot' `
-            -HookUrl '${{ secrets.SLACK_HOOK_URL }}' `
-            -DeploymentError '' `
-            -ProjectName '${{ github.event.repository.name }}' `
-            -ReleaseNumber '${{ github.run_number }}' `
-            -EnvironmentName 'Dev' `
-            -TargetRoles 'web,api' `
-            -TenantName '${{ github.event.inputs.tenant }}' `
-            -DeploymentLink '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' `
-            -ProjectLink '${{ github.server_url }}/${{ github.repository }}' `
-            -ReleaseLink '${{ github.server_url }}/${{ github.repository }}/releases'
+env:
+  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  DB_NAME: ${{ vars.DB_NAME }}
+  DEPLOYMENT_ROLE_ARN: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
+  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
+  NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
+  NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
+  OD_GHA_FILE_PATH: "od-gha-files"
+  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
+  PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
+  RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
+  SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
+  SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+  SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
+  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS  }}
+  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
+  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
+  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
+  GITHUB_ENVIRONMENT: "test"
+jobs:
+  generate-deploy-report-deploy-script:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: test
+    steps:
+        - name: "Checkout"
+          uses: actions/checkout@v4
