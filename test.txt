@@ -1,45 +1,62 @@
-name: Global Tax Mapper Github Workflow
+name: Employee Invitation Github Workflow
 
 on:
-    pull_request:
-      paths:
-        - '.github/workflows/global-tax-mapper-workflow.yaml'
-        - '.github/actions/**'
-
+  workflow_dispatch:
+    inputs:
+      DACPAC_ENVIRONMENT:
+        type: choice
+        description: Example, LS6-Global 1, Production Global - 01
+        options: 
+        - LS6-Global 1
+        - testbox
+      RELEASE_NUMBER:
+        required: true
+        description: The Release number which will come from TeamCity
+      GITHUB_ENVIRONMENT:
+        required: true
+        description: Environment to use (e.g., test, uat, production)
+        default: 'test'
+  
 permissions:
   id-token: write
   contents: read
   pull-requests: write
   actions: read
+  
 
 env:
-  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
+  DACPAC_OUTPUT_DIR: 'C:\dacpac-extracts'
+  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
+  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
+  OD_GHA_FILE_PATH: "od-gha-files"
   AWS_REGION: ${{ vars.AWS_REGION }}
   DB_NAME: ${{ vars.DB_NAME }}
-  DEPLOYMENT_ROLE_ARN: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
-  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
   NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
   NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
-  OD_GHA_FILE_PATH: "od-gha-files"
-  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
+  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
+  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
   PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
-  RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
-  SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
+  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
+  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
+  RELEASE_NUMBER: ${{ github.event.inputs.RELEASE_NUMBER }}
+  DACPAC_ENVIRONMENT: ${{ github.event.inputs.DACPAC_ENVIRONMENT }}
+  GITHUB_ENVIRONMENT: ${{ github.event.inputs.GITHUB_ENVIRONMENT }}
+  ENVIRONMENT: ${{ vars.ENVIRONMENT }}
   SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
   SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
-  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
-  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS  }}
-  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
-  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
-  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
-  GITHUB_ENVIRONMENT: "test"
+  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS }}
+  IMPERSONATED_USERNAME: ${{ vars.IMPERSONATED_USERNAME }}
+
 jobs:
   generate-deploy-report-deploy-script:
     runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    environment: test
+    environment: ${{ github.event.inputs.GITHUB_ENVIRONMENT }}
+    outputs:
+      approval-required: ${{ steps.sql-deploy-report-check.outputs.approval-required }}
+      MATRIX_INSTANCE_LIST: ${{ steps.fetch-instance-node.outputs.MATRIX_INSTANCE_LIST }}
     steps:
-        - name: "Checkout"
-          uses: actions/checkout@v4
+    - name: "Checkout"
+      uses: actions/checkout@v4
