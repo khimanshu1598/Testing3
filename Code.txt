@@ -1,48 +1,49 @@
-name: Employee Invitation Github Workflow
+function Slack-Rich-Notification ($notification)
+{
+    $payload = @{
+        channel = $OctopusParameters['Channel']
+        username = $OctopusParameters['Username'];
+        icon_url = $OctopusParameters['IconUrl'];
+        attachments = @(
+            @{
+            fallback = $notification["fallback"];
+            color = $notification["color"];
+            fields = @(
+                @{
+                title = $notification["title"];
+                title_link = $notification["title_link"];
+                value = $notification["value"];
+                });
+            };
+        );
+    }
 
-on:
-  pull_request:
-    paths:
-    - '.github/workflows/employee_invitation_workflow.yml'
-  workflow_dispatch:
-  
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
-  actions: read
-  
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-RestMethod -Method POST -Body ($payload | ConvertTo-Json -Depth 4) -Uri $OctopusParameters['HookUrl']  -ContentType 'application/json'
+}
 
-env:
-  DACPAC_OUTPUT_DIR: 'C:\dacpac-extracts'
-  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
-  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
-  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
-  OD_GHA_FILE_PATH: "od-gha-files"
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  DB_NAME: ${{ vars.DB_NAME }}
-  NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
-  NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
-  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
-  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
-  PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
-  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
-  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
-  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
-  RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
-  DACPAC_ENVIRONMENT: ${{ vars.DACPAC_ENVIRONMENT }}
-  ENVIRONMENT: ${{ vars.ENVIRONMENT }}
-  SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
-  SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
-  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS }}
+$IncludeMachineName = [boolean]::Parse($OctopusParameters['IncludeMachineName']);
+if ($IncludeMachineName) {
+    $MachineName = $OctopusParameters['Octopus.Machine.Name'];
+    if ($MachineName) {
+      $FormattedMachineName = "($MachineName)";
+    }
+}
 
-jobs:
-  generate-deploy-report-deploy-script:
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    environment: test
-    outputs:
-      ApprovalRequired: ${{ steps.sql-deploy-report-check.outputs.ApprovalRequired }}
-    steps:
-    - name: "Checkout"
-      uses: actions/checkout@v4
+if ($OctopusParameters['Octopus.Deployment.Error'] -eq $null){
+    Slack-Rich-Notification @{
+        title = "Success";
+        title_link = "$OctopusWebBaseUrl$OctopusWebDeploymentLink";
+        value = "Deploy <$OctopusWebBaseUrl$OctopusWebProjectLink|$OctopusProjectName> release <$OctopusWebBaseUrl$OctopusWebReleaseLink|$OctopusReleaseNumber> to $OctopusEnvironmentName $OctopusActionTargetRoles $OctopusDeploymentTenantName $FormattedMachineName";
+        fallback = "Deployed $OctopusProjectName release $OctopusReleaseNumber to $OctopusEnvironmentName successfully";
+        color = "good";
+    };
+} else {
+    Slack-Rich-Notification @{
+        title = "Failed";
+        title_link = "$OctopusWebBaseUrl$OctopusWebDeploymentLink";
+        value = "Deploy <$OctopusWebBaseUrl$OctopusWebProjectLink|$OctopusProjectName> release <$OctopusWebBaseUrl$OctopusWebReleaseLink|$OctopusReleaseNumber> to $OctopusEnvironmentName $OctopusActionTargetRoles $OctopusDeploymentTenantName $FormattedMachineName";
+        fallback = "Failed to deploy $OctopusProjectName release $OctopusReleaseNumber to $OctopusEnvironmentName";
+        color = "danger";
+    };
+}
