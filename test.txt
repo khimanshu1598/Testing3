@@ -1,9 +1,7 @@
 param (
     [string]$Channel,
     [string]$Username,
-    [string]$IconUrl,
     [string]$HookUrl,
-    [string]$MachineName = "",
     [string]$DeploymentError = "",
     [string]$ProjectName = "",
     [string]$ReleaseNumber = "",
@@ -20,7 +18,6 @@ function Slack-Rich-Notification ($notification)
     $payload = @{
         channel    = $Channel
         username   = $Username
-        icon_url   = $IconUrl
         attachments = @(
             @{
                 fallback = $notification["fallback"]
@@ -40,46 +37,47 @@ function Slack-Rich-Notification ($notification)
     Invoke-RestMethod -Method POST -Body ($payload | ConvertTo-Json -Depth 4) -Uri $HookUrl -ContentType 'application/json'
 }
 
-# Format machine name if provided
-$FormattedMachineName = if ($MachineName) { "($MachineName)" } else { "" }
+# Format tenant suffix
+$TenantSuffix = if ($TenantName) { "for tenant $TenantName" } else { "" }
+
+# Build the Slack message value
+$messageValue = "Deploy <$ProjectLink|$ProjectName> release <$ReleaseLink|$ReleaseNumber> to $EnvironmentName $TargetRoles $TenantSuffix".Trim()
 
 # Send success or failure notification
 if (-not $DeploymentError) {
     Slack-Rich-Notification @{
         title      = "Success"
         title_link = $DeploymentLink
-        value      = "Deploy <$ProjectLink|$ProjectName> release <$ReleaseLink|$ReleaseNumber> to $EnvironmentName $TargetRoles $TenantName $FormattedMachineName"
-        fallback   = "Deployed $ProjectName release $ReleaseNumber to $EnvironmentName successfully"
+        value      = $messageValue
+        fallback   = "Deployed $ProjectName release $ReleaseNumber to $EnvironmentName successfully $TenantSuffix"
         color      = "good"
     }
 } else {
     Slack-Rich-Notification @{
         title      = "Failed"
         title_link = $DeploymentLink
-        value      = "Deploy <$ProjectLink|$ProjectName> release <$ReleaseLink|$ReleaseNumber> to $EnvironmentName $TargetRoles $TenantName $FormattedMachineName"
-        fallback   = "Failed to deploy $ProjectName release $ReleaseNumber to $EnvironmentName"
+        value      = $messageValue
+        fallback   = "Failed to deploy $ProjectName release $ReleaseNumber to $EnvironmentName $TenantSuffix"
         color      = "danger"
     }
 }
 
 
-######################
+####################################
 
-- name: Send Slack Notification
-  shell: pwsh
-  run: |
-    ./scripts/send-slack-notification.ps1 `
-      -Channel '${{ secrets.SLACK_CHANNEL }}' `
-      -Username 'GitHub Actions Bot' `
-      -IconUrl 'https://example.com/icon.png' `
-      -HookUrl '${{ secrets.SLACK_HOOK_URL }}' `
-      -MachineName $env:COMPUTERNAME `
-      -DeploymentError '' `
-      -ProjectName '${{ github.event.repository.name }}' `
-      -ReleaseNumber '${{ github.run_number }}' `
-      -EnvironmentName 'Development' `
-      -TargetRoles 'web,api' `
-      -TenantName 'Default' `
-      -DeploymentLink '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' `
-      -ProjectLink '${{ github.server_url }}/${{ github.repository }}' `
-      -ReleaseLink '${{ github.server_url }}/${{ github.repository }}/releases'
+      - name: Send Slack Notification
+        shell: pwsh
+        run: |
+          ./scripts/send-slack-notification.ps1 `
+            -Channel '${{ secrets.SLACK_CHANNEL }}' `
+            -Username 'GitHub Actions Bot' `
+            -HookUrl '${{ secrets.SLACK_HOOK_URL }}' `
+            -DeploymentError '' `
+            -ProjectName '${{ github.event.repository.name }}' `
+            -ReleaseNumber '${{ github.run_number }}' `
+            -EnvironmentName 'Dev' `
+            -TargetRoles 'web,api' `
+            -TenantName '${{ github.event.inputs.tenant }}' `
+            -DeploymentLink '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' `
+            -ProjectLink '${{ github.server_url }}/${{ github.repository }}' `
+            -ReleaseLink '${{ github.server_url }}/${{ github.repository }}/releases'
