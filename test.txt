@@ -60,3 +60,284 @@ jobs:
     steps:
     - name: "Checkout"
       uses: actions/checkout@v4
+
+    - name: Download Dependencies and Utilities
+      id: download-dependencies
+      uses: ./.github/actions/download-packages
+      with:
+        oidc-role: ${{ vars.oidc_role_arn }}
+        oidc-target-role: ${{ vars.deployment_role_arn }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    # Run deploytrack-start to track deployment start
+    - name: Start DeployTrack
+      uses: abc-internal/github-actions/DeployTrack@v1
+      with:
+        kotahi_id: ${{ vars.KOTAHI_UUID }}
+        environment: ${{ env.GITHUB_ENVIRONMENT }}
+        status: in_progress
+        token: ${{ secrets.DEPLOY_TRACK_API_TOKEN }}
+
+    - name: Deploy the Jfrog artifactory NuGet Package and extract it in GHA Runner
+      id: deploy-extract-NuGet
+      uses: ./.github/actions/deploy-extract-packages
+      with:
+        nuget-pkg-download-path: ${{ vars.NUGET_PACKAGE_PATH }}
+        nuget-pkg-extract-path: ${{ github.workspace }}\packages
+        webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/Employee.Invitation.Database/
+        package-name: Employee.Invitation.Database.${{ env.RELEASE_NUMBER }}.0.0.nupkg
+
+    - name: Deploy the DAC Deploy Contributor Package from Jfrog artifactory and extract it in GHA Runner
+      id: deploy-extract-contributor-package
+      uses: ./.github/actions/deploy-extract-packages
+      with:
+        nuget-pkg-download-path: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
+        nuget-pkg-extract-path: ${{ github.workspace }}\packages\contributors
+        webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/abcDeploymentContributors/
+        package-name: abcDeploymentContributors.0.0.33.nupkg
+
+    - name: "Fetch the Instance ID and Node ID based on USE_CLUSTER_NAMES value"
+      id: fetch-instance-node
+      uses: ./.github/actions/get-ec2instance-id
+      with:
+        target-servers: ${{ env.TARGET_SERVERS }}
+        db-name: ${{ env.DB_NAME }}
+        role-list: ${{ env.USE_CLUSTER_NAMES == 'true' && '["primary","sync_secondary","principal_read_only"]' || 'primary' }}
+        db-server-host: ${{ env.GITHUB_ENVIRONMENT == 'production' && 'prd.aws.abc.com' || 'uat.aws.abc.com' }}
+
+    - name: Generate and store password
+      id: password-gen
+      uses: ./.github/actions/generate-password
+      with:
+        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Create a new SQL User
+      id: create-user
+      uses: ./.github/actions/validate-create-sql-user
+      with:
+        file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
+        destination-path: 'C:\\Temp\\EmployeeInvitation'
+        aws-region: ${{ env.AWS_REGION }}
+        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+        db-name: ${{ env.DB_NAME }}
+        sql-user-name: ${{ env.SQL_USER_NAME }}
+        username: ${{ env.IMPERSONATED_USERNAME }}
+    - name: DeployReport DACPAC
+      id: deploy-report
+      uses: ./.github/actions/sql-dacpac-deployer
+      with:
+        Action: "DeployReport"
+        DacpacPath: "${{ github.workspace }}\\packages\\Employee.Invitation.Database.Build.dacpac"
+        DatabaseName: "${{ env.DB_NAME }}"
+        UserName: "${{ env.SQL_USER_NAME }}"
+        SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
+        sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
+        ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
+        ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
+        FileName: "deployreport.xml"
+        TargetServer: ${{ env.TARGET_SERVERS }}
+        PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
+        UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
+        SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+        SQLCMDVariables: ""
+        SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
+
+    - name: SQL Deploy Report Check
+      id: sql-deploy-report-check
+      shell: powershell
+      run: |
+        $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
+        $pathsArray = $env:OutPutPath -split ','
+    
+        $approvalRequired = $false
+        foreach ($path in $pathsArray) {
+          $output = & $scriptPath -DeployReportPath $path
+          Write-Host "DeployReportCheck Output: $output"
+          if ($output -notmatch "No change detected in database") {
+              $approvalRequired = $true
+          }
+        }
+        
+        # echo "Value of approvalRequired: $approvalRequired"
+        echo "APPROVAL_REQUIRED=$($approvalRequired.ToString().ToLower())" >> $env:GITHUB_ENV
+        echo "approval-required=$($approvalRequired.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+    - name: Script DACPAC
+      id: script-dacpac
+      uses: ./.github/actions/sql-dacpac-deployer
+      with:
+        Action: "Script"
+        DacpacPath: "${{ github.workspace }}\\packages\\Employee.Invitation.Database.Build.dacpac"
+        DatabaseName: "${{ env.DB_NAME }}"
+        UserName: "${{ env.SQL_USER_NAME }}"
+        SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
+        sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
+        ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
+        ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
+        FileName: "deployscript.sql"
+        TargetServer: ${{ env.TARGET_SERVERS }}
+        PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
+        UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
+        SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+        SQLCMDVariables: ${{ env.SQL_CMD_VARIABLES }}
+        SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
+
+    - name: Upload DACPAC Deploy Report and Deploy Script as Artifact
+      uses: actions/upload-artifact@v4
+      if: ${{ env.ADD_ARTIFACTS_TO_RELEASE }} == 'true'
+      with:
+        name: DACPAC Deploy Report and Deploy Script
+        path: ${{ github.workspace }}/dacpacs
+
+    - name: Get Artifacts ID
+      id: get-artifact-id
+      if: ${{ env.ADD_ARTIFACTS_TO_RELEASE }} == 'true'
+      shell: powershell
+      run: |
+        $artifactName = "DACPAC Deploy Report and Deploy Script"
+        $headers = @{
+          Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"
+          Accept        = "application/vnd.github+json"
+        }
+
+        $url = "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+
+        Write-Host "Calling: $url"
+        $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing
+        $json = $response.Content | ConvertFrom-Json
+
+        $artifact = $json.artifacts | Where-Object { $_.name -eq $artifactName }
+
+        if ($null -eq $artifact) {
+          Write-Error "Artifact '$artifactName' not found."
+          exit 1
+        }
+        $artifactId = $artifact.id
+        Write-Host "Found artifact ID: $artifactId"
+
+        # Output to GitHub Actions
+        "ARTIFACT_ID=$artifactId" >> $env:GITHUB_ENV
+
+    - name: Slack - Manual Approval Notification
+      id: manual_approval_notification
+      if: ${{ env.APPROVAL_REQUIRED == 'true' }}
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*EmployeeInvitation database deployment requires manual approval* \n<${{ github.server_url }}/${{ github.repository }}/actions|${{ github.event.repository.name }}> database deployment requires manual approval for release <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ env.RELEASE_NUMBER }}> to ${{ env.DACPAC_ENVIRONMENT }}"}' \
+        "$SLACK_WEBHOOK_URL"
+      
+    - name: Slack - Manual Approval Notification for Artifacts Review
+      id: manual_approval_notification_artifacts_review
+      if: ${{ env.APPROVAL_REQUIRED == 'true' && env.ADD_ARTIFACTS_TO_RELEASE == 'true' }}
+      shell: bash
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"*Review Deployment Artifacts* \nReview the DACPAC Deploy Report and Deploy Script: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ env.ARTIFACT_ID }}|Click Here>"}' \
+        "$SLACK_WEBHOOK_URL"
+
+  wait-for-approval:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: approval
+    needs: generate-deploy-report-deploy-script
+    if: ${{ needs.generate-deploy-report-deploy-script.outputs.approval-required == 'true' }}
+    steps:
+    - name: "Review - Deploy Report and Deploy Script"
+      run: |
+        echo "The request has been approved by the approvers. Proceeding with next steps"
+
+  deploy-publish:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    environment: ${{ github.event.inputs.GITHUB_ENVIRONMENT }}
+    needs: 
+      - generate-deploy-report-deploy-script
+      - wait-for-approval
+    if: >-
+      ${{
+        needs.generate-deploy-report-deploy-script.result == 'success' &&
+        (
+          !failure() && (needs.wait-for-approval.result == 'success' || needs.wait-for-approval.result == 'skipped')
+        ) }}
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+      - name: Download Dependencies and Utilities
+        id: download-dependencies
+        uses: ./.github/actions/download-packages
+        with:
+          oidc-role: ${{ vars.oidc_role_arn }}
+          oidc-target-role: ${{ vars.deployment_role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set MATRIX_INSTANCE_LIST with fallback
+        id: set-matrix
+        shell: powershell
+        env:
+          WORKFLOW_VALUE: ${{ env.MATRIX_INSTANCE_LIST }}
+          JOB_OUTPUT_VALUE: ${{ needs.generate-deploy-report-deploy-script.outputs.MATRIX_INSTANCE_LIST }}
+        run: |
+          # echo " Workflow Env value MATRIX_INSTANCE_LIST: $env:WORKFLOW_VALUE"
+          # echo " Job Env value MATRIX_INSTANCE_LIST: $env:JOB_OUTPUT_VALUE"
+          if ([string]::IsNullOrWhiteSpace($env:WORKFLOW_VALUE)) {
+            $final = $env:JOB_OUTPUT_VALUE
+          } else {
+            $final = $env:WORKFLOW_VALUE
+          }
+          # echo " Final value before parsing : $final"
+          # Parse the JSON string into an object
+          $parsed = $final | ConvertFrom-Json
+          # Convert the object back to JSON string
+          $jsonEscaped = $parsed | ConvertTo-Json -Depth 10 -Compress
+          echo "Final MATRIX_INSTANCE_LIST: $jsonEscaped"
+          echo "MATRIX_INSTANCE_LIST=$jsonEscaped" >> $env:GITHUB_ENV
+
+      - name: Deploy the Jfrog artifactory NuGet Package and extract it in GHA Runner
+        id: deploy-extract-NuGet
+        uses: ./.github/actions/deploy-extract-packages
+        with:
+          nuget-pkg-download-path: ${{ vars.NUGET_PACKAGE_PATH }}
+          nuget-pkg-extract-path: ${{ github.workspace }}\packages
+          webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/Employee.Invitation.Database/
+          package-name: Employee.Invitation.Database.$env:RELEASE_NUMBER.0.0.nupkg
+
+
+      - name: Publish DACPAC
+        id: publish-dacpac
+        uses: ./.github/actions/sql-dacpac-deployer
+        with:
+          Action: "Publish"
+          DacpacPath: "${{ github.workspace }}\\packages\\Employee.Invitation.Database.Build.dacpac"
+          DatabaseName: "${{ env.DB_NAME }}"
+          UserName: "${{ env.SQL_USER_NAME }}"
+          ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
+          SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
+          sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
+          PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
+          UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
+          SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+          SQLCMDVariables: ${{ env.SQL_CMD_VARIABLES }}
+          SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
+
+      - name: Delete a New SQL User.
+        id: delete-user
+        uses: ./.github/actions/invoke-sql-actions
+        with:
+          sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+          db-name: ${{ env.DB_NAME }}
+          sql-user-name: ${{ env.SQL_USER_NAME }}
+          sql-activity: 'delete-user'
+          destination-path: 'C:\\Temp\\EmployeeInvitation'
+          aws-region: ${{ env.AWS_REGION }}
+          
+    #Finalise deployment track
+      - name: Finalise DeployTrack
+        if: ${{ always() }}
+        uses: abc-internal/github-actions/DeployTrack@v1
+        env:
+          conclusion: ${{ (contains(job.status,'failure') || contains(steps.*.outcome,'failure') || contains(steps.*.outcome,'cancelled')) && 'failed' || 'success' }}
+        with:
+          kotahi_id: ${{ vars.KOTAHI_UUID }}
+          environment: ${{ env.GITHUB_ENVIRONMENT }}
+          status: ${{ env.conclusion }}
+          token: ${{ secrets.DEPLOY_TRACK_API_TOKEN }}
