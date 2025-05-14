@@ -1,80 +1,66 @@
-name: 'Deploy and extract packages from JFrog artifactory'
-description: 'Deploy and extract the JFrog artifactories which are required for the DACPAC deployment.'
-inputs:
-  nuget-pkg-download-path:
-    description: 'Download Path where the latest NuGet package will be downloaded'
-    required: true
-  nuget-pkg-extract-path:
-    description: 'Extract Path where the latest NuGet package will be extracted'
-    required: true
-  package-name:
-    description: 'The name of JFrog artifactory which is downloaded'
-    required: true
-  webrequest-uri:
-    description: 'The URL from where the package needs to be downloaded'
-    required: true
+# Deploy and Extract Packages from JFrog Artifactory
 
-runs:
-  using: "composite"
-  steps:
-  - name: Deploy NuGet Package
-    shell: powershell
-    run: |
-      
-      # Remove any existing files in the download folder (if any)
-      if (Test-Path -Path ${{ inputs.nuget-pkg-download-path }}) {
-          Write-Host "Cleaning up the download folder"
-          Remove-Item -Path "${{ inputs.nuget-pkg-download-path }}\*" -Recurse -Force
-      } else {
-          Write-Host "Creating new download folder"
-          New-Item -ItemType Directory -Path ${{ inputs.nuget-pkg-download-path }} -Force
-      }
-        # # Check if the folder exists, and if not, create it
-        # if (-not (Test-Path -Path ${{ inputs.nuget-pkg-download-path }})) {
-        #     New-Item -ItemType Directory -Path ${{ inputs.nuget-pkg-download-path }} -Force
-        #     Write-Host "Created ${{ inputs.nuget-pkg-download-path }} folder."
-        # } else {
-        #     Write-Host "${{ inputs.nuget-pkg-download-path }} folder already exists."
-        # }
+This composite GitHub Action automates the process of downloading a NuGet package from JFrog Artifactory, extracting its contents, and listing the extracted files. It is primarily designed for use in workflows where DACPAC or deployment packages need to be retrieved and unpacked.
 
+---
 
-        Invoke-WebRequest -Uri "${{ inputs.webrequest-uri }}\${{ inputs.package-name }}" -OutFile "${{ inputs.nuget-pkg-download-path }}\${{ inputs.package-name }}" 
-        Get-ChildItem -Path ${{ inputs.nuget-pkg-download-path }} -Filter *.nupkg | Select-Object FullName
+## 📦 Action Name
 
-  - name: Extract .nupkg to employee invitation DB packages
-    run: |
-      # Ensure the extraction folder exists and is empty
+**`deploy-jfrog-package`**
 
-      # Remove any existing files in the extraction folder (if any)
-      if (Test-Path -Path ${{ inputs.nuget-pkg-extract-path }}) {
-          Write-Host "Cleaning up the extraction folder"
-          Remove-Item -Path "${{ inputs.nuget-pkg-extract-path }}\*" -Recurse -Force
-      } else {
-          Write-Host "Creating new extraction folder"
-          New-Item -ItemType Directory -Path ${{ inputs.nuget-pkg-extract-path }} -Force
-      }
+---
 
-      #Get the first .nupkg file in the directory
-      $nupkg = Get-ChildItem -Path ${{ inputs.nuget-pkg-download-path }} -Filter *.nupkg | Select-Object -First 1
+## 📝 Description
 
-      if ($nupkg -eq $null) {
-        Write-Error "No .nupkg file found in the directory!"
-        exit 1
-      }
+Deploy and extract the JFrog artifactories which are required for the DACPAC deployment.
 
-      Write-Host "Found .nupkg file: $($nupkg.FullName)"
+---
 
-      #Load ZIP Utility and extract the .nupkg file
-      Add-Type -AssemblyName System.IO.Compression.FileSystem
-      [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkg.FullName, "${{ inputs.nuget-pkg-extract-path }}")
+## ✅ Inputs
 
-      Write-Host "Extracted $($nupkg.Name) to ${{ inputs.nuget-pkg-extract-path }}"
-      # Get-ChildItem -Path ${{ inputs.nuget-pkg-extract-path }} -Recurse
-      # Get-Content "${{ inputs.nuget-pkg-extract-path }}\\abc-uat.publish.xml"
-    shell: powershell
+| Name                    | Required | Description                                                                 |
+|-------------------------|----------|-----------------------------------------------------------------------------|
+| `nuget-pkg-download-path` | ✅       | Folder where the `.nupkg` package will be downloaded                       |
+| `nuget-pkg-extract-path`  | ✅       | Folder where the `.nupkg` contents will be extracted                       |
+| `package-name`            | ✅       | Name of the NuGet package (e.g., `my-package.1.0.0.nupkg`)                 |
+| `webrequest-uri`          | ✅       | Artifactory base URL for downloading the package (excluding the filename)  |
 
-  - name: Files Present in Nuget Package
-    run: |
-      echo "Listing files in dacpacs directory:"
-      ls -l "${{ github.workspace }}/packages"
-    shell: bash
+---
+
+## 🧩 What This Action Does
+
+### Step-by-Step:
+
+1. **Deploy NuGet Package**
+   - Cleans or creates the download folder.
+   - Downloads the `.nupkg` file from the specified `webrequest-uri` using `Invoke-WebRequest`.
+   - Confirms the download.
+
+2. **Extract `.nupkg` Package**
+   - Cleans or creates the extraction folder.
+   - Locates the `.nupkg` file in the download folder.
+   - Uses the .NET `ZipFile` class to extract the package to the specified location.
+
+3. **List Extracted Files**
+   - Lists the extracted contents in the target folder using `ls -l` (for verification).
+
+---
+
+## 🧪 Example Usage in Workflow
+
+```yaml
+jobs:
+  deploy-and-extract:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy and Extract from JFrog
+      uses: your-org/central-actions-repo@main
+      with:
+        nuget-pkg-download-path: 'C:\\actions\\downloads'
+        nuget-pkg-extract-path: 'C:\\actions\\packages'
+        package-name: 'my-artifact.1.0.0.nupkg'
+        webrequest-uri: 'https://artifactory.mycompany.com/artifacts'
