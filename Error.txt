@@ -1,74 +1,75 @@
-kumar.himanshu@LM-D9NL7R33VG .github % tree
-.
-├── actions
-│   ├── deploy-extract-packages
-│   │   └── action.yaml
-│   ├── download-packages
-│   │   └── action.yaml
-│   ├── generate-password
-│   │   └── action.yaml
-│   ├── get-ec2instance-id
-│   │   └── action.yaml
-│   ├── invoke-sql-actions
-│   │   └── action.yaml
-│   ├── new-relic-event
-│   │   └── action.yaml
-│   ├── run-dacpac-deployment
-│   │   └── action.yaml
-│   ├── sql-dacpac-deployer
-│   │   └── action.yaml
-│   ├── transfer-script
-│   │   └── action.yaml
-│   └── validate-create-sql-user
-│       └── action.yaml
-├── pull_request_template.md
-└── workflows
-    ├── build-and-test.yaml
-    ├── check-deployment-pr.yml
-    └── global-tax-mapper-uat-workflow.yaml
-
-13 directories, 14 files
-
-kumar.himanshu@LM-D9NL7R33VG od-gha-files % pwd
-/Users/kumar.himanshu/Global_Tax_Mapper/GlobalTaxMapper.DB/od-gha-files
-kumar.himanshu@LM-D9NL7R33VG od-gha-files % 
-kumar.himanshu@LM-D9NL7R33VG od-gha-files % tree
-.
-├── send-slack-notification.ps1
-├── sql-actions.ps1
-└── sqlpackage-runner-fixed.ps1
-
-1 directory, 3 files
-kumar.himanshu@LM-D9NL7R33VG od-gha-files % 
+      - name: Create a new SQL User
+        id: create-user
+        uses: ./.github/actions/validate-create-sql-user
+        with:
+          file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
+          destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
+          aws-region: ${{ env.AWS_REGION }}
+          sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+          db-name: ${{ env.DB_NAME }}
+          sql-user-name: ${{ env.SQL_USER_NAME }}
+          username: ${{ env.IMPERSONATED_USERNAME }}
 
 
-kumar.himanshu@LM-D9NL7R33VG OD-GHA-MIGRATION % tree
-.
-├── actions
-│   ├── deploy-extract-packages
-│   │   └── action.yaml
-│   ├── download-packages
-│   │   └── action.yaml
-│   ├── generate-password
-│   │   └── action.yaml
-│   ├── get-ec2instance-id
-│   │   └── action.yaml
-│   ├── invoke-sql-actions
-│   │   └── action.yaml
-│   ├── new-relic-event
-│   │   └── action.yaml
-│   ├── run-dacpac-deployment
-│   │   └── action.yaml
-│   ├── sql-dacpac-deployer
-│   │   └── action.yaml
-│   ├── transfer-script
-│   │   └── action.yaml
-│   └── validate-create-sql-user
-│       └── action.yaml
-└── od-gha-files
-    ├── send-slack-notification.ps1
-    ├── sql-actions.ps1
-    └── sqlpackage-runner-fixed.ps1
+validate-create-sql-user: -
 
-13 directories, 13 files
-kumar.himanshu@LM-D9NL7R33VG OD-GHA-MIGRATION % 
+name: 'Create a new SQL user'
+description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+
+inputs:
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    required: true
+  db-name:
+    description: 'Name of the Database'
+    required: true
+  sql-user-name:
+    description: 'Name of the sql user to be created'
+    required: true
+  username:
+    description: 'Username of impersonated user in domainName\username format'
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Transfer GHA scripts to target server
+    id: transfer-script
+    uses: ./.github/actions/transfer-script
+    with:
+      file-path: "${{ inputs.file-path }}"
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+
+  - name: Validate if the SQL User exists and delete the SQL User
+    id: validate-user
+    uses: ./.github/actions/invoke-sql-actions
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'validate-delete-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
+
+  - name: Create a New SQL User and grant permissions to the new user
+    id: create-user
+    uses: ./.github/actions/invoke-sql-actions
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'create-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
