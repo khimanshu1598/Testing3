@@ -1,75 +1,17 @@
-      - name: Create a new SQL User
-        id: create-user
-        uses: ./.github/actions/validate-create-sql-user
-        with:
-          file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
-          destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
-          aws-region: ${{ env.AWS_REGION }}
-          sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-          db-name: ${{ env.DB_NAME }}
-          sql-user-name: ${{ env.SQL_USER_NAME }}
-          username: ${{ env.IMPERSONATED_USERNAME }}
+1. Move to GitHub-actions central repo:
 
+In this approach, we propose to move the actions and scripts to the github-actions repo  (https://github.com/abc-internal/github-actionsConnect your Github account ). We will create a folder called as “OD-GHA-Migration” and in that folder we will store powershell scripts along with the reusable actions in actions.yaml file for different actions. When we work on the pipeline workflow for any specific project, we will call the reusable action from github-actions repo and use it in our GHA workflow file.
 
-validate-create-sql-user: -
+ 
 
-name: 'Create a new SQL user'
-description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+Pros:
+Xero adopts this approach across all teams, making it the preferred method.
 
-inputs:
-  file-path:
-    description: 'Path of the scripts in GHA Runner to send to target server'
-    required: true
-  destination-path:
-    description: 'Path on the target server where script needs to be added'
-    required: true
-  aws-region:
-    description: 'AWS region details'
-    required: true
-  sql-password-parameter-store:
-    description: 'Name of the system manager parameter store which contains password for sql user'
-    required: true
-  db-name:
-    description: 'Name of the Database'
-    required: true
-  sql-user-name:
-    description: 'Name of the sql user to be created'
-    required: true
-  username:
-    description: 'Username of impersonated user in domainName\username format'
-    required: true
+Maintenance will be simplified, as all GitHub actions will reside within the same repository.
 
-runs:
-  using: composite
-  steps:
-  - name: Transfer GHA scripts to target server
-    id: transfer-script
-    uses: ./.github/actions/transfer-script
-    with:
-      file-path: "${{ inputs.file-path }}"
-      destination-path: ${{ inputs.destination-path }}
-      aws-region: ${{ inputs.aws-region }}
+There is no need to manage reusable actions separately for the OD-GHA migration.
 
-  - name: Validate if the SQL User exists and delete the SQL User
-    id: validate-user
-    uses: ./.github/actions/invoke-sql-actions
-    with:
-      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
-      db-name: ${{ inputs.db-name }}
-      sql-user-name: ${{ inputs.sql-user-name }}
-      sql-activity: 'validate-delete-user'
-      destination-path: ${{ inputs.destination-path }}
-      aws-region: ${{ inputs.aws-region }}
-      username: ${{ inputs.username }}
+The point of ownership will remain consistent.
 
-  - name: Create a New SQL User and grant permissions to the new user
-    id: create-user
-    uses: ./.github/actions/invoke-sql-actions
-    with:
-      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
-      db-name: ${{ inputs.db-name }}
-      sql-user-name: ${{ inputs.sql-user-name }}
-      sql-activity: 'create-user'
-      destination-path: ${{ inputs.destination-path }}
-      aws-region: ${{ inputs.aws-region }}
-      username: ${{ inputs.username }}
+Cons:
+The readability of the code may become challenging as we will be establishing nested folders to facilitate the creation of reusable actions and scripts.
