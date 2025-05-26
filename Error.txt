@@ -1,17 +1,28 @@
-1. Move to GitHub-actions central repo:
-
-In this approach, we propose to move the actions and scripts to the github-actions repo  (https://github.com/abc-internal/github-actionsConnect your Github account ). We will create a folder called as “OD-GHA-Migration” and in that folder we will store powershell scripts along with the reusable actions in actions.yaml file for different actions. When we work on the pipeline workflow for any specific project, we will call the reusable action from github-actions repo and use it in our GHA workflow file.
-
- 
-
-Pros:
-Xero adopts this approach across all teams, making it the preferred method.
-
-Maintenance will be simplified, as all GitHub actions will reside within the same repository.
-
-There is no need to manage reusable actions separately for the OD-GHA migration.
-
-The point of ownership will remain consistent.
-
-Cons:
-The readability of the code may become challenging as we will be establishing nested folders to facilitate the creation of reusable actions and scripts.
+kumar.himanshu@LM-D9NL7R33VG github-actions % tree     
+.
+├── CONTRIBUTING.md
+├── DeployTrack
+│   ├── CODEOWNERS
+│   ├── README.md
+│   ├── __tests__
+│   │   ├── deploytrack.test.ts
+│   │   └── main.test.ts
+│   ├── action.yml
+│   ├── dist
+│   │   ├── index.js
+│   │   ├── index.js.map
+│   │   └── sourcemap-register.js
+│   ├── eslint.config.mjs
+│   ├── jest.config.js
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── src
+│   │   ├── deploytrack.ts
+│   │   ├── errors.ts
+│   │   ├── index.ts
+│   │   └── main.ts
+│   └── tsconfig.json
+├── OD-GHA-MIGRATION
+│   └── actions
+│       └── download-packages
+│           └── action.yaml
