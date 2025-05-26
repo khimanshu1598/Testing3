@@ -1,66 +1,62 @@
-# Deploy and Extract Packages from JFrog Artifactory
+kumar.himanshu@LM-D9NL7R33VG .github % tree
+.
+├── actions
+│   ├── deploy-extract-packages
+│   │   └── action.yaml
+│   ├── download-packages
+│   │   └── action.yaml
+│   ├── generate-password
+│   │   └── action.yaml
+│   ├── get-ec2instance-id
+│   │   └── action.yaml
+│   ├── invoke-sql-actions
+│   │   └── action.yaml
+│   ├── new-relic-event
+│   │   └── action.yaml
+│   ├── run-dacpac-deployment
+│   │   └── action.yaml
+│   ├── sql-dacpac-deployer
+│   │   └── action.yaml
+│   ├── transfer-script
+│   │   └── action.yaml
+│   └── validate-create-sql-user
+│       └── action.yaml
+├── pull_request_template.md
+└── workflows
+    ├── build-and-test.yaml
+    ├── check-deployment-pr.yml
+    └── global-tax-mapper-uat-workflow.yaml
 
-This composite GitHub Action automates the process of downloading a NuGet package from JFrog Artifactory, extracting its contents, and listing the extracted files. It is primarily designed for use in workflows where DACPAC or deployment packages need to be retrieved and unpacked.
+13 directories, 14 files
 
----
 
-## 📦 Action Name
+kumar.himanshu@LM-D9NL7R33VG OD-GHA-MIGRATION % tree
+.
+├── actions
+│   ├── deploy-extract-packages
+│   │   └── action.yaml
+│   ├── download-packages
+│   │   └── action.yaml
+│   ├── generate-password
+│   │   └── action.yaml
+│   ├── get-ec2instance-id
+│   │   └── action.yaml
+│   ├── invoke-sql-actions
+│   │   └── action.yaml
+│   ├── new-relic-event
+│   │   └── action.yaml
+│   ├── run-dacpac-deployment
+│   │   └── action.yaml
+│   ├── sql-dacpac-deployer
+│   │   └── action.yaml
+│   ├── transfer-script
+│   │   └── action.yaml
+│   └── validate-create-sql-user
+│       └── action.yaml
+└── od-gha-files
+    ├── send-slack-notification.ps1
+    ├── sql-actions.ps1
+    └── sqlpackage-runner-fixed.ps1
 
-**`deploy-jfrog-package`**
-
----
-
-## 📝 Description
-
-Deploy and extract the JFrog artifactories which are required for the DACPAC deployment.
-
----
-
-## ✅ Inputs
-
-| Name                    | Required | Description                                                                 |
-|-------------------------|----------|-----------------------------------------------------------------------------|
-| `nuget-pkg-download-path` | ✅       | Folder where the `.nupkg` package will be downloaded                       |
-| `nuget-pkg-extract-path`  | ✅       | Folder where the `.nupkg` contents will be extracted                       |
-| `package-name`            | ✅       | Name of the NuGet package (e.g., `my-package.1.0.0.nupkg`)                 |
-| `webrequest-uri`          | ✅       | Artifactory base URL for downloading the package (excluding the filename)  |
-
----
-
-## 🧩 What This Action Does
-
-### Step-by-Step:
-
-1. **Deploy NuGet Package**
-   - Cleans or creates the download folder.
-   - Downloads the `.nupkg` file from the specified `webrequest-uri` using `Invoke-WebRequest`.
-   - Confirms the download.
-
-2. **Extract `.nupkg` Package**
-   - Cleans or creates the extraction folder.
-   - Locates the `.nupkg` file in the download folder.
-   - Uses the .NET `ZipFile` class to extract the package to the specified location.
-
-3. **List Extracted Files**
-   - Lists the extracted contents in the target folder using `ls -l` (for verification).
-
----
-
-## 🧪 Example Usage in Workflow
-
-```yaml
-jobs:
-  deploy-and-extract:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Deploy and Extract from JFrog
-      uses: your-org/central-actions-repo@main
-      with:
-        nuget-pkg-download-path: 'C:\\actions\\downloads'
-        nuget-pkg-extract-path: 'C:\\actions\\packages'
-        package-name: 'my-artifact.1.0.0.nupkg'
-        webrequest-uri: 'https://artifactory.mycompany.com/artifacts'
+13 directories, 13 files
+kumar.himanshu@LM-D9NL7R33VG OD-GHA-MIGRATION % 
