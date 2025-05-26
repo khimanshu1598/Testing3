@@ -29,6 +29,18 @@ kumar.himanshu@LM-D9NL7R33VG .github % tree
 
 13 directories, 14 files
 
+kumar.himanshu@LM-D9NL7R33VG od-gha-files % pwd
+/Users/kumar.himanshu/Global_Tax_Mapper/GlobalTaxMapper.DB/od-gha-files
+kumar.himanshu@LM-D9NL7R33VG od-gha-files % 
+kumar.himanshu@LM-D9NL7R33VG od-gha-files % tree
+.
+├── send-slack-notification.ps1
+├── sql-actions.ps1
+└── sqlpackage-runner-fixed.ps1
+
+1 directory, 3 files
+kumar.himanshu@LM-D9NL7R33VG od-gha-files % 
+
 
 kumar.himanshu@LM-D9NL7R33VG OD-GHA-MIGRATION % tree
 .
