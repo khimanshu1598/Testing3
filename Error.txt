@@ -1,13 +1,6 @@
-Finished
-Looking for script at: C:\actions-runner\_work\_actions\abc-internal\dacpac-actions\v1.0.2\OD-GHA-MIGRATION\od-gha-files\sql-actions.ps1
-Script not found.
-Get-ChildItem : Cannot find path 'C:\actions-runner\_work\_actions\abc-internal\dacpac-actions\' because it does not 
-exist.
-At C:\actions-runner\_work\_temp\27763503-9348-44b0-8bd6-a078d4221499.ps1:14 char:3
-+   Get-ChildItem -Recurse -Path $base | Where-Object { $_.Name -eq "sq ...
-+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (C:\actions-runn...dacpac-actions\:String) [Get-ChildItem], ItemNotFound 
-   Exception
-    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetChildItemCommand
- 
-Error: Process completed with exit code 1.
+- name: 🔍 Debug: Print script path inside action
+  shell: bash
+  run: |
+    echo "🔎 github.action_path: ${{ github.action_path }}"
+    echo "🧪 Looking for script at:"
+    ls -l "${{ github.action_path }}/../../../od-gha-files/sql-actions.ps1" || echo "❌ Not found"
