@@ -1,10 +1,14 @@
-        - name: Create a new SQL User
-          id: create-user
-          uses: xero-internal/dacpac-actions/OD-GHA-MIGRATION/action/validate-create-sql-user@v1.0.1
-          with:
-            # file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
-            destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
-            aws-region: ${{ env.AWS_REGION }}
-            sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-            db-name: ${{ env.DB_NAME }}
-            sql-user-name: ${{ env.SQL_USER_NAME }}
+- name: 🔍 Debug: Locate sql-actions.ps1 with PowerShell
+  shell: pwsh
+  run: |
+    Write-Host "Action Path: ${{ github.action_path }}"
+    $basePath = Join-Path "${{ github.action_path }}" "..\..\..\od-gha-files"
+    $scriptPath = Join-Path $basePath "sql-actions.ps1"
+
+    Write-Host "Looking for script at: $scriptPath"
+
+    if (Test-Path $scriptPath) {
+      Write-Host "✅ Found script at: $scriptPath"
+    } else {
+      Write-Host "❌ Script not found."
+    }
