@@ -1,6 +1,18 @@
-- name: 🔍 Debug: Print script path inside action
-  shell: bash
-  run: |
-    echo "🔎 github.action_path: ${{ github.action_path }}"
-    echo "🧪 Looking for script at:"
-    ls -l "${{ github.action_path }}/../../../od-gha-files/sql-actions.ps1" || echo "❌ Not found"
+name: 'Print SQL Script Path'
+description: 'Logs the hardcoded path to sql-actions.ps1'
+runs:
+  using: 'composite'
+  steps:
+    - name: Display Script Path
+      shell: pwsh
+      run: |
+        # Hardcoded path to sql-actions.ps1 (relative to action's root)
+        $scriptPath = "${{ github.action_path }}/../../od-gha-files/sql-actions.ps1"
+        Write-Output "Script path: $scriptPath"
+
+        # Optional: Verify if the file exists
+        if (Test-Path $scriptPath) {
+          Write-Output "✅ Script exists at the above path."
+        } else {
+          Write-Error "❌ Script NOT FOUND at the above path!"
+        }
