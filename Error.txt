@@ -1,13 +1,147 @@
-        - name: Create a new SQL User
-          id: create-user
-          uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/validate-create-sql-user@v1.0.1
-          with:
-            file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
-            destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
-            aws-region: ${{ env.AWS_REGION }}
-            sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-            db-name: ${{ env.DB_NAME }}
-            sql-user-name: ${{ env.SQL_USER_NAME }}
+validate-create-sql-user/action.yaml: -
 
-env:
-  OD_GHA_FILE_PATH: "od-gha-files"
+name: 'Create a new SQL user'
+description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+
+inputs:
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    required: true
+  db-name:
+    description: 'Name of the Database'
+    required: true
+  sql-user-name:
+    description: 'Name of the sql user to be created'
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Transfer GHA scripts to target server
+    id: transfer-script
+    uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/transfer-script@v1.0.1
+    with:
+      file-path: "${{ inputs.file-path }}"
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+
+
+
+
+
+
+transfer-script/action.yaml: -
+name: 'Transfer script to target server'
+description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+
+inputs:
+  file-path:
+    description: 'Path of the script in GHA Runner to send to target server'
+    required: true
+  destination-path:
+    description: 'Folder path on the target server where the script will be placed'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+
+runs:
+  using: composite
+  steps:
+
+  - name: Transfer script to target EC2 server via SSM and wait for success
+    id: transfer-file-to-ec2
+    shell: bash
+    run: |
+      set -e
+
+      echo "Starting script transfer..."
+
+      # Encode the file to base64
+      ENCODED=$(base64 -w 0 "${{ inputs.file-path }}")
+
+      # Build the PowerShell command
+      PS_COMMAND="\$b64='$ENCODED'; \
+      if (!(Test-Path '${{ inputs.destination-path }}')) { New-Item -Path '${{ inputs.destination-path }}' -ItemType Directory | Out-Null }; \
+      \$scriptPath = Join-Path '${{ inputs.destination-path }}' 'sql-actions.ps1'; \
+      if (Test-Path \$scriptPath) { Remove-Item \$scriptPath -Force; Write-Output 'FILE_DELETED' }; \
+      \$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
+      Set-Content -Path \$scriptPath -Value \$decoded -Force; \
+      Write-Output 'FILE_UPLOADED'"
+
+      # Normalize matrix instance list
+      matrixJson="$MATRIX_INSTANCE_LIST"
+      if [[ "$matrixJson" != \[* ]]; then
+        echo "Wrapping single JSON object in an array..."
+        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+      fi
+
+      echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+
+      # Iterate over each instance
+      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
+        instance=$(echo "$item" | jq -r '.instance')
+        dbServer=$(echo "$item" | jq -r '.dbServerName')
+        role=$(echo "$item" | jq -r '.role')
+
+        echo "----------------------------------"
+        echo "Transferring script to - Instance: $instance, Role: $role, DB Server: $dbServer"
+
+        # Send the transfer command
+        command_id=$(aws ssm send-command \
+          --document-name "AWS-RunPowerShellScript" \
+          --instance-ids "$instance" \
+          --region "${{ inputs.aws-region }}" \
+          --comment "Uploading sql-actions.ps1 via GitHub Actions" \
+          --parameters "commands=[\"$PS_COMMAND\"]" \
+          --query "Command.CommandId" \
+          --output text)
+
+        echo "Command ID generated: $command_id"
+
+        # Wait for upload to complete
+        echo "Waiting for upload to complete..."
+        timeout_minutes=5
+        timeout_seconds=$((timeout_minutes * 60))
+        elapsed_seconds=0
+
+        while true; do
+          status=$(aws ssm list-command-invocations \
+            --command-id "$command_id" \
+            --instance-id "$instance" \
+            --region "${{ inputs.aws-region }}" \
+            --query "CommandInvocations[0].Status" \
+            --output text)
+
+          echo "Current SSM command status for $instance: $status"
+
+          if [[ "$status" == "Success" ]]; then
+            echo "Script upload completed successfully for instance: $instance"
+            break
+          elif [[ "$status" == "Failed" || "$status" == "Cancelled" || "$status" == "TimedOut" ]]; then
+            echo "Script upload failed for instance: $instance with status: $status"
+            exit 1
+          else
+            echo "Still waiting for script upload... ($elapsed_seconds seconds elapsed)"
+            sleep 5
+            elapsed_seconds=$((elapsed_seconds + 5))
+            if [[ "$elapsed_seconds" -ge "$timeout_seconds" ]]; then
+              echo "Timeout reached ($timeout_minutes minutes) while waiting for script upload on instance: $instance"
+              exit 1
+            fi
+          fi
+        done
+
+        echo "----------------------------------"
+      done
+
+      echo "All scripts uploaded successfully to all instances."
