@@ -1,111 +1,17 @@
-name: Global Tax Mapper Central Github Workflow
+- name: 🔍 Confirm script path from cloned action
+  shell: pwsh
+  run: |
+    $base = "$env:GITHUB_ACTION_PATH"
+    if (-not $base) {
+      $base = "C:\actions-runner\_work\_actions\abc-internal\dacpac-actions\v1.0.2"
+    }
 
-on:
-    pull_request:
-      paths:
-        - '.github/workflows/GlobalTaxMapper-workflow.yaml'
+    $scriptPath = Join-Path $base "OD-GHA-MIGRATION\od-gha-files\sql-actions.ps1"
+    Write-Host "Looking for script at: $scriptPath"
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
-  actions: read
-
-env:
-  ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  DACPAC_ENVIRONMENT: ${{ vars.DACPAC_ENVIRONMENT  }}
-  # DACPAC_ENVIRONMENT: ${{ github.event.inputs.DACPAC_ENVIRONMENT }}
-  DB_NAME: ${{ vars.DB_NAME }}
-  DEPLOYMENT_ROLE_ARN: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-  # GITHUB_ENVIRONMENT: ${{ github.event.inputs.GITHUB_ENVIRONMENT }}
-  GITHUB_ENVIRONMENT: "test"
-  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
-  MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
-  NEW_RELIC_APP_KEY: ${{ vars.NEW_RELIC_APP_KEY }}
-  NEW_RELIC_API_KEY: ${{ secrets.NEW_RELIC_API_KEY }}
-  NR_ENVIRONMENT: ${{ vars.NR_ENVIRONMENT }}
-  NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
-  NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
-  OD_GHA_FILE_PATH: "od-gha-files"
-  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
-  OWNER: ${{ vars.OWNER }}
-  PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
-  # RELEASE_NUMBER: ${{ github.event.inputs.RELEASE_NUMBER }}
-  RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
-  SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
-  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-  SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
-  SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
-  SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
-  SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS  }}
-  SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
-  SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
-  TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
-  USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
-
-
-
-jobs:
-  generate-deploy-report-deploy-script:
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    environment: test
-
-    steps:
-        - name: "Checkout"
-          uses: actions/checkout@v4
-
-        - name: Download Utilities and assume OIDC
-          id: download-dependencies
-          uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/download-packages-and-oidc-setup@v1.0.2
-          with:
-            oidc-role: ${{ env.OIDC_ROLE_ARN }}
-            oidc-target-role: ${{ env.DEPLOYMENT_ROLE_ARN }}
-            aws-region: ${{ env.AWS_REGION }}
-
-        - name: Deploy the Jfrog artifactory NuGet Package and extract it in GHA Runner
-          id: deploy-extract-NuGet
-          uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/download-nuget-and-contributor-package@v1.0.2
-          with:
-            nuget-pkg-download-path: ${{ env.NUGET_PACKAGE_PATH }}
-            nuget-pkg-extract-path: ${{ github.workspace }}\packages
-            webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/GlobalTaxMapperDB/
-            package-name: GlobalTaxMapperDB.${{ env.RELEASE_NUMBER }}.nupkg
-
-        - name: Deploy the DAC Deploy Contributor Package from Jfrog artifactory and extract it in GHA Runner
-          id: deploy-extract-contributor-package
-          uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/download-nuget-and-contributor-package@v1.0.2
-          with:
-            nuget-pkg-download-path: ${{ env.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
-            nuget-pkg-extract-path: ${{ github.workspace }}\packages\contributors
-            webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/abcDeploymentContributors/
-            package-name: abcDeploymentContributors.0.0.33.nupkg
-
-        - name: "Fetch the Instance ID and Node ID based on USE_CLUSTER_NAMES value"
-          id: fetch-instance-node
-          uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/get-ec2instance-id@v1.0.2
-          with:
-            target-servers: ${{ env.TARGET_SERVERS }}
-            db-name: ${{ env.DB_NAME }}
-            role-list: ${{ env.USE_CLUSTER_NAMES == 'true' && '["primary","sync_secondary","principal_read_only"]' || 'primary' }}
-            db-server-host: ${{ env.GITHUB_ENVIRONMENT == 'production' && 'prd.aws.abc.com' || 'uat.aws.abc.com' }}       
-
-        - name: Generate and store password
-          id: password-gen
-          uses: abc-internal/dacpac-actions/OD-GHA-MIGRATION/action/generate-password@v1.0.2
-          with:
-            sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-            aws-region: ${{ env.AWS_REGION }}
-
-        - name: Locate sql-actions.ps1 with PowerShell
-          shell: powershell
-          run: |
-            Write-Host "Action Path: ${{ github.action_path }}"
-            $basePath = Join-Path "${{ github.action_path }}" "..\..\..\od-gha-files"
-            $scriptPath = Join-Path $basePath "sql-actions.ps1"
-            Write-Host "Looking for script at: $scriptPath"
-            if (Test-Path $scriptPath) {
-              Write-Host "✅ Found script at: $scriptPath"
-            } else {
-              Write-Host "❌ Script not found."
-            }
+    if (Test-Path $scriptPath) {
+      Write-Host "✅ Script found at: $scriptPath"
+    } else {
+      Write-Host "❌ Script not found."
+      Get-ChildItem -Recurse -Path $base | Where-Object { $_.Name -eq "sql-actions.ps1" }
+    }
