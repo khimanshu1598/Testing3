@@ -1,14 +1,12 @@
-- name: 🔍 Debug: Locate sql-actions.ps1 with PowerShell
-  shell: pwsh
-  run: |
-    Write-Host "Action Path: ${{ github.action_path }}"
-    $basePath = Join-Path "${{ github.action_path }}" "..\..\..\od-gha-files"
-    $scriptPath = Join-Path $basePath "sql-actions.ps1"
-
-    Write-Host "Looking for script at: $scriptPath"
-
-    if (Test-Path $scriptPath) {
-      Write-Host "✅ Found script at: $scriptPath"
-    } else {
-      Write-Host "❌ Script not found."
-    }
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Action Path: 
+Join-Path : Cannot bind argument to parameter 'Path' because it is an empty string.
+At C:\actions-runner\_work\_temp\47007ba7-66d8-4436-8cd5-2f291b78fef2.ps1:3 char:23
++ $basePath = Join-Path "" "..\..\..\od-gha-files"
++                       ~~
+    + CategoryInfo          : InvalidData: (:) [Join-Path], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,Microsoft.PowerShell.Commands.Join 
+   PathCommand
+ 
+Error: Process completed with exit code 1.
