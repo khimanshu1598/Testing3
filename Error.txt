@@ -1,17 +1,13 @@
-- name: 🔍 Confirm script path from cloned action
-  shell: pwsh
-  run: |
-    $base = "$env:GITHUB_ACTION_PATH"
-    if (-not $base) {
-      $base = "C:\actions-runner\_work\_actions\abc-internal\dacpac-actions\v1.0.2"
-    }
-
-    $scriptPath = Join-Path $base "OD-GHA-MIGRATION\od-gha-files\sql-actions.ps1"
-    Write-Host "Looking for script at: $scriptPath"
-
-    if (Test-Path $scriptPath) {
-      Write-Host "✅ Script found at: $scriptPath"
-    } else {
-      Write-Host "❌ Script not found."
-      Get-ChildItem -Recurse -Path $base | Where-Object { $_.Name -eq "sql-actions.ps1" }
-    }
+Finished
+Looking for script at: C:\actions-runner\_work\_actions\abc-internal\dacpac-actions\v1.0.2\OD-GHA-MIGRATION\od-gha-files\sql-actions.ps1
+Script not found.
+Get-ChildItem : Cannot find path 'C:\actions-runner\_work\_actions\abc-internal\dacpac-actions\' because it does not 
+exist.
+At C:\actions-runner\_work\_temp\27763503-9348-44b0-8bd6-a078d4221499.ps1:14 char:3
++   Get-ChildItem -Recurse -Path $base | Where-Object { $_.Name -eq "sq ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\actions-runn...dacpac-actions\:String) [Get-ChildItem], ItemNotFound 
+   Exception
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetChildItemCommand
+ 
+Error: Process completed with exit code 1.
