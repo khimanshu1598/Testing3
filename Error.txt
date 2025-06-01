@@ -1,5 +1,5 @@
-Error: xero-internal\dacpac-actions\main\OD-GHA_MIGRATION/action/validate-create-sql-user\action.yaml (Line: 32, Col: 11): Expected format {org}/{repo}[/path]@ref. Actual '../transfer-script'
-Error: System.FormatException: Input string was not in a correct format. Failure to parse near offset 133. Expected an ASCII digit.
+Error: xero-internal\dacpac-actions\main\OD-GHA_MIGRATION/action/sql-dacpac-deployer\action.yaml (Line: 99, Col: 11): Expected format {org}/{repo}[/path]@ref. Actual '../run-dacpac-deployment'
+Error: System.FormatException: Input string was not in a correct format. Failure to parse near offset 128. Expected an ASCII digit.
    at System.Text.ValueStringBuilder.AppendFormatHelper(IFormatProvider provider, String format, ReadOnlySpan`1 args)
    at System.String.FormatHelper(IFormatProvider provider, String format, ReadOnlySpan`1 args)
    at System.String.Format(IFormatProvider provider, String format, Object[] args)
@@ -7,5 +7,7 @@ Error: System.FormatException: Input string was not in a correct format. Failure
    at GitHub.DistributedTask.ObjectTemplating.TemplateContext.Error(Nullable`1 fileId, Nullable`1 line, Nullable`1 column, String message)
    at GitHub.DistributedTask.ObjectTemplating.TemplateContext.Error(TemplateToken value, String message)
    at GitHub.DistributedTask.Pipelines.ObjectTemplating.PipelineTemplateConverter.ConvertToStep(TemplateContext context, TemplateToken stepsItem, ReferenceNameBuilder nameBuilder)
-   at GitHub.DistributedTask.Pipelines.ObjectTemplating.PipelineTemplateConvert
-Error: Failed to load xero-internal\dacpac-actions\main\OD-GHA_MIGRATION/action/validate-create-sql-user\action.yaml
+   at GitHub.DistributedTask.Pipelines.ObjectTemplating.PipelineTemplateConverter.ConvertToSteps(TemplateContext context, TemplateToken steps)
+   at GitHub.Runner.Worker.ActionManifestManager.ConvertRuns(IExecutionContext executionContext, TemplateContext templateContext, TemplateToken inputsToken, String fileRelativePath, MappingToken outputs)
+   at GitHub.Runner.Worker.ActionManifestManager.Load(IExecutionContext executionContext, String manifestFile)
+Error: Failed to load xero-internal\dacpac-actions\main\OD-GHA_MIGRATION/action/sql-dacpac-deployer\action.yaml
