@@ -11,6 +11,32 @@ runs:
 
 
 
+name: 'Create a new SQL user'
+description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+
+inputs:
+  # file-path:
+  #   description: 'Path of the scripts in GHA Runner to send to target server'
+  #   required: true
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    required: true
+  db-name:
+    description: 'Name of the Database'
+    required: true
+  sql-user-name:
+    description: 'Name of the sql user to be created'
+    required: true
+  username:
+    description: 'Username of impersonated user in domainName\username format'
+    required: true
+
 runs:
   using: composite
   steps:
