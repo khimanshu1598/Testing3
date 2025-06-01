@@ -1,23 +1,10 @@
-runs:
-  using: "composite"
-  steps:
-      - name: Get full path of PS1 script
-        shell: powershell
-        run: |
-          $scriptPath = Resolve-Path "${{ github.action_path }}\..\..\od-gha-files\testscript.ps1"
-          Write-Host "Full path to script: $scriptPath"
-          & $scriptPath
-        id: get-ps1-path
-
-
-
 name: 'Create a new SQL user'
 description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
 
 inputs:
-  # file-path:
-  #   description: 'Path of the scripts in GHA Runner to send to target server'
-  #   required: true
+  file-path:
+    description: 'Path of the scripts in GHA Runner to send to target server'
+    required: true
   destination-path:
     description: 'Path on the target server where script needs to be added'
     required: true
@@ -47,3 +34,27 @@ runs:
       file-path: "${{ inputs.file-path }}"
       destination-path: ${{ inputs.destination-path }}
       aws-region: ${{ inputs.aws-region }}
+
+  - name: Validate if the SQL User exists and delete the SQL User
+    id: validate-user
+    uses: ./.github/actions/invoke-sql-actions
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'validate-delete-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
+
+  - name: Create a New SQL User and grant permissions to the new user
+    id: create-user
+    uses: ./.github/actions/invoke-sql-actions
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'create-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
