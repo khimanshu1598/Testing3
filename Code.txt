@@ -103,3 +103,17 @@ runs:
       done
 
       echo "All scripts uploaded successfully to all instances."
+
+
+
+      - name: Create a new SQL User
+        id: create-user
+        uses: ./.github/actions/validate-create-sql-user
+        with:
+          file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
+          destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
+          aws-region: ${{ env.AWS_REGION }}
+          sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+          db-name: ${{ env.DB_NAME }}
+          sql-user-name: ${{ env.SQL_USER_NAME }}
+          username: ${{ env.IMPERSONATED_USERNAME }}
