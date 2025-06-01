@@ -8,3 +8,16 @@ runs:
           Write-Host "Full path to script: $scriptPath"
           & $scriptPath
         id: get-ps1-path
+
+
+
+runs:
+  using: composite
+  steps:
+  - name: Transfer GHA scripts to target server
+    id: transfer-script
+    uses: ./.github/actions/transfer-script
+    with:
+      file-path: "${{ inputs.file-path }}"
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
