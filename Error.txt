@@ -1,18 +1,10 @@
-name: 'Print SQL Script Path'
-description: 'Logs the hardcoded path to sql-actions.ps1'
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-    - name: Display Script Path
-      shell: pwsh
-      run: |
-        # Hardcoded path to sql-actions.ps1 (relative to action's root)
-        $scriptPath = "${{ github.action_path }}/../../od-gha-files/sql-actions.ps1"
-        Write-Output "Script path: $scriptPath"
-
-        # Optional: Verify if the file exists
-        if (Test-Path $scriptPath) {
-          Write-Output "✅ Script exists at the above path."
-        } else {
-          Write-Error "❌ Script NOT FOUND at the above path!"
-        }
+      - name: Get full path of PS1 script
+        shell: powershell
+        run: |
+          $scriptPath = Resolve-Path "${{ github.action_path }}\..\..\od-gha-files\testscript.ps1"
+          Write-Host "Full path to script: $scriptPath"
+          & $scriptPath
+        id: get-ps1-path
