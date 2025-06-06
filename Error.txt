@@ -1,60 +1,50 @@
-paassql-pipelines/generate-password/action.yaml: -
+paassql-pipelines/oidc-and-sqlpackage-installation/action.yaml: -
 
-name: 'Generate and Store Password'
-description: 'Generates a secure 12-character password (2 of each type) and stores it in AWS SSM'
-
+name: 'Download Packages and dependencies'
+description: 'Download different utility files and dependencies which are required for the DACPAC deployment.'
 inputs:
-  sql-password-parameter-store:
-    description: 'Name of the system manager parameter store which contains password for sql user'
+  oidc-role:
+    description: 'OIDC Role to assume'
+    required: true
+  oidc-target-role:
+    description: 'OIDC Target Role to assume (Deployment Role)'
     required: true
   aws-region:
-    description: 'AWS region details'
-    required: true
-
-outputs:
-  parameter-path:
-    description: 'Name of the system manager parameter store which contains password for sql user'
-    value: ${{ steps.store.outputs.parameter-path }}
-  generated-password:
-    description: 'The generated password'
-    value: ${{ steps.generate-password.outputs.generated-password }}
+    description: 'AWS region (default: us-east-1)'
+    default: 'us-west-2'
 
 runs:
   using: "composite"
   steps:
-  - name: Generate password
-    id: generate-password
+
+  - name: Assume OIDC role
+    id: assume_oidc_role
+    uses: xero-internal/github-actions/aws-assume-oidc@main
+    with:
+      oidc-role-to-assume: ${{ inputs.oidc-role }}
+      target-role-to-assume: ${{ inputs.oidc-target-role }}
+      aws-region: ${{ inputs.aws-region }}
+
+  - name: Install jq on Windows
     shell: powershell
     run: |
-      # Generate 2 of each character type (total 12 chars)
-      $upper = (65..90 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
-      $lower = (97..122 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
-      $numbers = (48..57 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
-      $special = "!#%"
+      Invoke-WebRequest -Uri "https://github.com/stedolan/jq/releases/latest/download/jq-win64.exe" -OutFile "$env:USERPROFILE\jq.exe"
+      echo "$env:USERPROFILE" | Out-File -Append -FilePath $env:GITHUB_PATH
 
-      # Combine and shuffle
-      $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
-
-      echo "::add-mask::$password"
-      echo "generated-password=$password" >> $env:GITHUB_OUTPUT
-
-      # Store it in a temporary file for next step
-      Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
-
-  - name: Store in Parameter Store
-    id: store
+  - name: 📦 Download and install sqlpackage
     shell: powershell
     run: |
-      $parameterName = "${{ inputs.sql-password-parameter-store }}"
-      $region = "${{ inputs.aws-region }}"
-      $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
+      $zipUrl = "https://aka.ms/sqlpackage-windows"
+      $downloadPath = "${{ github.workspace }}\sqlpackage.zip" 
+      $extractPath = "${{ github.workspace }}\sqlpackage"
+      Write-Host "SQLPackage will be installed in: $extractPath"
 
-      aws ssm put-parameter `
-        --name "$parameterName" `
-        --value "$password" `
-        --type "SecureString" `
-        --overwrite `
-        --region "$region"
+      Invoke-WebRequest -Uri $zipUrl -OutFile $downloadPath -UseBasicParsing
 
-      echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
-      Remove-Item "$env:GITHUB_WORKSPACE\generated_password.txt" -Force
+      if (Test-Path $extractPath) {
+        Remove-Item -Path $extractPath -Recurse -Force
+      }
+      Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
+      Remove-Item $downloadPath
+
+      echo "SQLPACKAGE_PATH=$extractPath" >> $env:GITHUB_ENV
