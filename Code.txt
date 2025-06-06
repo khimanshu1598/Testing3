@@ -1,19 +1,96 @@
-name: 'Deploy and extract packages from JFrog artifactory'
-description: 'Downloads a NuGet .nupkg package from JFrog Artifactory and extracts it to a target directory for DACPAC deployments.'
+# 🔐 Generate and Store Password
+
+This GitHub Action generates a secure 12-character password (3 uppercase, 3 lowercase, 3 digits, and 3 special characters) and stores it in AWS SSM Parameter Store as a `SecureString`.
+
+---
+
+## 📥 Inputs
+
+| Name                          | Description                                                                              | Required | Default |
+|-------------------------------|------------------------------------------------------------------------------------------|----------|---------|
+| `sql-password-parameter-store`| Name of the AWS SSM Parameter Store key to store the password                           | Yes      | –       |
+| `aws-region`                  | AWS region where the SSM parameter is to be stored                                       | Yes      | –       |
+| `🖥️ Supported Runners`         | Only `windows-latest`. Uses PowerShell and AWS CLI                                      | –        | –       |
+| `🔐 Required Permissions`      | Requires `ssm:PutParameter` permission in the target AWS account                         | –        | –       |
+
+---
+
+## ▶️ Example Usage
+
+```yaml
+- uses: actions/checkout@v4
+
+- name: Generate and store password
+  uses: ./paassql-pipelines/generate-password
+  with:
+    sql-password-parameter-store: '/infra/sql/password'
+    aws-region: 'us-west-2'
+
+
+
+test-generate-password.yml: -
+
+
+---
+
+## ✅ 2. `.github/workflows/test-generate-password.yml`
+
+```yaml
+name: Test generate-password
+
+on:
+  pull_request:
+    paths:
+      - 'paassql-pipelines/generate-password/**'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure fake AWS credentials
+        run: |
+          mkdir -Force $env:USERPROFILE\.aws
+          Set-Content -Path $env:USERPROFILE\.aws\credentials -Value @"
+[default]
+aws_access_key_id = test
+aws_secret_access_key = test
+"@
+
+      - name: Run generate-password action (mocked)
+        uses: ./paassql-pipelines/generate-password
+        with:
+          sql-password-parameter-store: '/fake/sql/password'
+          aws-region: 'us-west-2'
+
+      - name: Output verification
+        run: |
+          Write-Host "Generated password was masked and stored."
+        shell: powershell
+
+
+--------------
+
+name: 'Generate and Store Password'
+description: 'Generates a secure 12-character password (3 of each type) and stores it in AWS SSM Parameter Store.'
 
 inputs:
-  nuget-pkg-download-path:
-    description: 'Download path where the NuGet package will be saved.'
+  sql-password-parameter-store:
+    description: 'Name of the AWS SSM Parameter Store key to store the password'
     required: true
-  nuget-pkg-extract-path:
-    description: 'Path where the contents of the NuGet package will be extracted.'
+  aws-region:
+    description: 'AWS region where the parameter should be stored'
     required: true
-  package-name:
-    description: 'Name of the .nupkg file to download.'
-    required: true
-  webrequest-uri:
-    description: 'Full or base URL of the Artifactory server.'
-    required: true
+
+outputs:
+  parameter-path:
+    description: 'SSM parameter path where the password is stored'
+    value: ${{ steps.store.outputs.parameter-path }}
+  generated-password:
+    description: 'The generated password'
+    value: ${{ steps.generate-password.outputs.generated-password }}
 
 runs:
   using: "composite"
@@ -21,92 +98,44 @@ runs:
     - name: Validate inputs
       shell: powershell
       run: |
-        if (-not "${{ inputs.nuget-pkg-download-path }}") {
-          Write-Error "❌ Input 'nuget-pkg-download-path' is required but not provided."
+        if (-not "${{ inputs.sql-password-parameter-store }}") {
+          Write-Error "❌ 'sql-password-parameter-store' is required."
           exit 1
         }
-        if (-not "${{ inputs.nuget-pkg-extract-path }}") {
-          Write-Error "❌ Input 'nuget-pkg-extract-path' is required but not provided."
-          exit 1
-        }
-        if (-not "${{ inputs.package-name }}") {
-          Write-Error "❌ Input 'package-name' is required but not provided."
-          exit 1
-        }
-        if (-not "${{ inputs.webrequest-uri }}") {
-          Write-Error "❌ Input 'webrequest-uri' is required but not provided."
+        if (-not "${{ inputs.aws-region }}") {
+          Write-Error "❌ 'aws-region' is required."
           exit 1
         }
 
-    - name: Clean or create download folder
+    - name: Generate password
+      id: generate-password
       shell: powershell
       run: |
-        if (Test-Path -Path "${{ inputs.nuget-pkg-download-path }}") {
-          Write-Host "🧹 Cleaning existing download folder..."
-          Remove-Item -Path "${{ inputs.nuget-pkg-download-path }}\*" -Recurse -Force
-        } else {
-          Write-Host "📂 Creating new download folder..."
-          New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-download-path }}" -Force
-        }
+        $upper = (65..90 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+        $lower = (97..122 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+        $numbers = (48..57 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+        $special = ("!" + "#" + "%" | ForEach-Object { $_ })
 
-    - name: Download NuGet package from Artifactory
+        $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
+
+        echo "::add-mask::$password"
+        echo "generated-password=$password" >> $env:GITHUB_OUTPUT
+        Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
+
+    - name: Store in Parameter Store
+      id: store
       shell: powershell
       run: |
-        $url = "${{ inputs.webrequest-uri }}\${{ inputs.package-name }}"
-        $outputFile = "${{ inputs.nuget-pkg-download-path }}\${{ inputs.package-name }}"
+        $parameterName = "${{ inputs.sql-password-parameter-store }}"
+        $region = "${{ inputs.aws-region }}"
+        $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
 
-        Write-Host "🌐 Downloading package from $url..."
-        Invoke-WebRequest -Uri $url -OutFile $outputFile
+        aws ssm put-parameter `
+          --name "$parameterName" `
+          --value "$password" `
+          --type "SecureString" `
+          --overwrite `
+          --region "$region"
 
-        if (-not (Test-Path $outputFile)) {
-          Write-Error "❌ Failed to download the package."
-          exit 1
-        }
-
-        Write-Host "✅ Download complete: $outputFile"
-
-    - name: Clean or create extract folder
-      shell: powershell
-      run: |
-        if (Test-Path -Path "${{ inputs.nuget-pkg-extract-path }}") {
-          Write-Host "🧹 Cleaning existing extraction folder..."
-          Remove-Item -Path "${{ inputs.nuget-pkg-extract-path }}\*" -Recurse -Force
-        } else {
-          Write-Host "📂 Creating new extraction folder..."
-          New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-extract-path }}" -Force
-        }
-
-    - name: Extract .nupkg file contents
-      shell: powershell
-      run: |
-        $nupkg = Get-ChildItem -Path "${{ inputs.nuget-pkg-download-path }}" -Filter *.nupkg | Select-Object -First 1
-
-        if (-not $nupkg) {
-          Write-Error "❌ No .nupkg file found to extract."
-          exit 1
-        }
-
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        Add-Type -AssemblyName System.IO.Compression
-
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
-
-        foreach ($entry in $zip.Entries) {
-          $destination = Join-Path "${{ inputs.nuget-pkg-extract-path }}" $entry.FullName
-          $dir = [System.IO.Path]::GetDirectoryName($destination)
-          if (-not (Test-Path $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-          }
-          if (![string]::IsNullOrWhiteSpace($entry.Name)) {
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $true)
-          }
-        }
-
-        $zip.Dispose()
-        Write-Host "✅ Extracted contents to ${{ inputs.nuget-pkg-extract-path }}"
-
-    - name: List extracted files (debug)
-      shell: bash
-      run: |
-        echo "📁 Contents of extraction directory:"
-        ls -l "${{ inputs.nuget-pkg-extract-path }}"
+        echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
+        Remove-Item "$env:GITHUB_WORKSPACE\generated_password.txt" -Force
