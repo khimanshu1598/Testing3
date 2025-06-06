@@ -1,141 +1,115 @@
-# 🔐 Generate and Store Password
+name: 'Download Packages and dependencies'
+description: 'Download utility files and dependencies (jq, SqlPackage) required for DACPAC deployment using OIDC-authenticated AWS access.'
 
-This GitHub Action generates a secure 12-character password (3 uppercase, 3 lowercase, 3 digits, and 3 special characters) and stores it in AWS SSM Parameter Store as a `SecureString`.
+inputs:
+  oidc-role:
+    description: 'OIDC role to assume'
+    required: true
+
+  oidc-target-role:
+    description: 'OIDC target (deployment) role to assume'
+    required: true
+
+  aws-region:
+    description: 'AWS region (default: us-west-2)'
+    required: false
+    default: 'us-west-2'
+
+runs:
+  using: "composite"
+  steps:
+    - name: 🔍 Validate inputs
+      shell: powershell
+      run: |
+        if (-not "${{ inputs.oidc-role }}") {
+          Write-Error "❌ Input 'oidc-role' is required but not provided."
+          exit 1
+        }
+        if (-not "${{ inputs.oidc-target-role }}") {
+          Write-Error "❌ Input 'oidc-target-role' is required but not provided."
+          exit 1
+        }
+
+    - name: 🔐 Assume OIDC role
+      id: assume_oidc_role
+      uses: xero-internal/github-actions/aws-assume-oidc@main
+      with:
+        oidc-role-to-assume: ${{ inputs.oidc-role }}
+        target-role-to-assume: ${{ inputs.oidc-target-role }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: 🧰 Install jq on Windows
+      shell: powershell
+      run: |
+        $jqPath = "$env:USERPROFILE\jq.exe"
+        Invoke-WebRequest -Uri "https://github.com/stedolan/jq/releases/latest/download/jq-win64.exe" -OutFile $jqPath
+        echo "$env:USERPROFILE" | Out-File -Append -FilePath $env:GITHUB_PATH
+
+    - name: 📦 Download and install SqlPackage
+      shell: powershell
+      run: |
+        $zipUrl = "https://aka.ms/sqlpackage-windows"
+        $downloadPath = "${{ github.workspace }}\sqlpackage.zip"
+        $extractPath = "${{ github.workspace }}\sqlpackage"
+
+        Write-Host "📂 Installing SqlPackage into: $extractPath"
+
+        # Download SqlPackage ZIP
+        Invoke-WebRequest -Uri $zipUrl -OutFile $downloadPath -UseBasicParsing
+
+        # Clean previous install
+        if (Test-Path $extractPath) {
+          Remove-Item -Path $extractPath -Recurse -Force
+        }
+
+        # Extract and cleanup
+        Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
+        Remove-Item $downloadPath -Force
+
+        # Set path for use in downstream steps
+        echo "SQLPACKAGE_PATH=$extractPath" >> $env:GITHUB_ENV
+
+
+
+# 📦 OIDC and SqlPackage Installer
+
+This GitHub Action assumes an OIDC role for AWS access and downloads utility dependencies like `jq` and `SqlPackage` required for DACPAC deployments on Windows runners.
 
 ---
 
 ## 📥 Inputs
 
-| Name                          | Description                                                                              | Required | Default |
-|-------------------------------|------------------------------------------------------------------------------------------|----------|---------|
-| `sql-password-parameter-store`| Name of the AWS SSM Parameter Store key to store the password                           | Yes      | –       |
-| `aws-region`                  | AWS region where the SSM parameter is to be stored                                       | Yes      | –       |
-| `🖥️ Supported Runners`         | Only `windows-latest`. Uses PowerShell and AWS CLI                                      | –        | –       |
-| `🔐 Required Permissions`      | Requires `ssm:PutParameter` permission in the target AWS account                         | –        | –       |
+| Name               | Description                                                               | Required | Default     |
+|--------------------|---------------------------------------------------------------------------|----------|-------------|
+| `oidc-role`        | The OIDC role to assume                                                    | Yes      | –           |
+| `oidc-target-role` | The OIDC target (deployment) role to assume                               | Yes      | –           |
+| `aws-region`       | AWS region in which the roles exist                                       | No       | us-west-2   |
+
+---
+
+## 🖥️ Supported Runners
+
+- `windows-latest`
+
+> This action is compatible only with **Windows** runners as it installs `sqlpackage.exe` and `jq.exe` using PowerShell.
+
+---
+
+## 🔐 Required Permissions
+
+To successfully run this action, the GitHub Actions environment must:
+
+- Be configured to use GitHub OIDC authentication
+- Have permission to assume the roles passed via `oidc-role` and `oidc-target-role`
 
 ---
 
 ## ▶️ Example Usage
 
 ```yaml
-- uses: actions/checkout@v4
-
-- name: Generate and store password
-  uses: ./paassql-pipelines/generate-password
+- name: Install SqlPackage and dependencies
+  uses: ./paassql-pipelines/oidc-and-sqlpackage-installation
   with:
-    sql-password-parameter-store: '/infra/sql/password'
-    aws-region: 'us-west-2'
-
-
-
-test-generate-password.yml: -
-
-
----
-
-## ✅ 2. `.github/workflows/test-generate-password.yml`
-
-```yaml
-name: Test generate-password
-
-on:
-  pull_request:
-    paths:
-      - 'paassql-pipelines/generate-password/**'
-
-jobs:
-  test:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Configure fake AWS credentials
-        run: |
-          mkdir -Force $env:USERPROFILE\.aws
-          Set-Content -Path $env:USERPROFILE\.aws\credentials -Value @"
-[default]
-aws_access_key_id = test
-aws_secret_access_key = test
-"@
-
-      - name: Run generate-password action (mocked)
-        uses: ./paassql-pipelines/generate-password
-        with:
-          sql-password-parameter-store: '/fake/sql/password'
-          aws-region: 'us-west-2'
-
-      - name: Output verification
-        run: |
-          Write-Host "Generated password was masked and stored."
-        shell: powershell
-
-
---------------
-
-name: 'Generate and Store Password'
-description: 'Generates a secure 12-character password (3 of each type) and stores it in AWS SSM Parameter Store.'
-
-inputs:
-  sql-password-parameter-store:
-    description: 'Name of the AWS SSM Parameter Store key to store the password'
-    required: true
-  aws-region:
-    description: 'AWS region where the parameter should be stored'
-    required: true
-
-outputs:
-  parameter-path:
-    description: 'SSM parameter path where the password is stored'
-    value: ${{ steps.store.outputs.parameter-path }}
-  generated-password:
-    description: 'The generated password'
-    value: ${{ steps.generate-password.outputs.generated-password }}
-
-runs:
-  using: "composite"
-  steps:
-    - name: Validate inputs
-      shell: powershell
-      run: |
-        if (-not "${{ inputs.sql-password-parameter-store }}") {
-          Write-Error "❌ 'sql-password-parameter-store' is required."
-          exit 1
-        }
-        if (-not "${{ inputs.aws-region }}") {
-          Write-Error "❌ 'aws-region' is required."
-          exit 1
-        }
-
-    - name: Generate password
-      id: generate-password
-      shell: powershell
-      run: |
-        $upper = (65..90 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
-        $lower = (97..122 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
-        $numbers = (48..57 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
-        $special = ("!" + "#" + "%" | ForEach-Object { $_ })
-
-        $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
-
-        echo "::add-mask::$password"
-        echo "generated-password=$password" >> $env:GITHUB_OUTPUT
-        Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
-
-    - name: Store in Parameter Store
-      id: store
-      shell: powershell
-      run: |
-        $parameterName = "${{ inputs.sql-password-parameter-store }}"
-        $region = "${{ inputs.aws-region }}"
-        $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
-
-        aws ssm put-parameter `
-          --name "$parameterName" `
-          --value "$password" `
-          --type "SecureString" `
-          --overwrite `
-          --region "$region"
-
-        echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
-        Remove-Item "$env:GITHUB_WORKSPACE\generated_password.txt" -Force
+    oidc-role: arn:aws:iam::123456789012:role/github-oidc-base-role
+    oidc-target-role: arn:aws:iam::123456789012:role/github-deployment-role
+    aws-region: us-west-2
