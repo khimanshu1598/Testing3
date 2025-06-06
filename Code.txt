@@ -1,67 +1,11 @@
-# 🚀 Run DACPAC Deployment using sqlpackage.exe
-
-This GitHub Action runs `sqlpackage.exe` commands to perform operations like `extract`, `deployreport`, `script`, and `publish` on SQL Server databases. It supports dynamic parameter substitution, output file path generation, and JSON-formatted SQLCMD variables.
-
----
-
-## 📥 Inputs
-
-| Name                       | Description                                                                                                 | Required | Default |
-|----------------------------|-------------------------------------------------------------------------------------------------------------|----------|---------|
-| `ArtifactDownloadPath`     | Path where the artifacts like reports/scripts will be stored                                                | Yes      | –       |
-| `DatabaseName`             | The name of the target database                                                                             | Yes      | –       |
-| `ReleaseNumber`            | The current release number                                                                                  | Yes      | –       |
-| `FileName`                 | Output file name (e.g. `.sql` or `.xml`)                                                                    | Yes      | –       |
-| `targetServer`             | Target SQL Server instance                                                                                  | Yes      | –       |
-| `Action`                   | One of: `extract`, `deployreport`, `script`, `publish`                                                      | Yes      | –       |
-| `PublishProfileFilePath`   | Full path to the SQL Server publish profile XML                                                             | Yes      | –       |
-| `GithubActor`              | GitHub actor that triggered the workflow                                                                    | Yes      | –       |
-| `SQLPackageDeployProperties`| JSON object of SQLPackage properties (e.g. `{"BlockOnPossibleDataLoss":"False"}`)                           | Yes      | –       |
-| `SQLCMDVariables`          | JSON object of SQLCMD variables (e.g. `{"env":"dev","region":"us"}`)                                        | Yes      | –       |
-| `SQLPackageParameters`     | JSON object of SQLPackage CLI parameters (e.g. `{"Action":"Publish"}`)                                      | Yes      | –       |
-| `SqlPackagePath`           | Path to `sqlpackage.exe`                                                                                    | Yes      | –       |
-| `DacpacPath`               | [Optional] Path to `.dacpac` file to deploy                                                                 | No       | –       |
-| `UserName`                 | SQL Server username                                                                                         | Yes      | –       |
-| `UseMultiSubnetFailover`   | Adds `MultiSubnetFailover=True` to connection string                                                        | Yes      | –       |
-
----
-
-## 🖥️ Supported Runners
-
-- `windows-latest`
-
-> This action depends on `sqlpackage.exe` and PowerShell, and is supported only on Windows runners.
-
----
-
-## 🔐 Required Permissions
-
-- No special GitHub permissions are required.
-- Ensure credentials used in the workflow have access to the SQL Server target.
-
----
-
-## ▶️ Example Usage
-
-```yaml
-- name: Run DACPAC Deployment
-  uses: ./paassql-pipelines/run-dacpac-deployment
-  with:
-    ArtifactDownloadPath: './output'
-    DatabaseName: 'mydatabase'
-    ReleaseNumber: 'v1.2.3'
-    FileName: 'release.sql'
-    targetServer: 'sql.mycompany.internal'
-    Action: 'publish'
-    PublishProfileFilePath: './profiles/dev.publish.xml'
-    GithubActor: ${{ github.actor }}
-    SQLPackageDeployProperties: '{"BlockOnPossibleDataLoss":"False"}'
-    SQLCMDVariables: '{"env":"dev","region":"us"}'
-    SQLPackageParameters: '{"Action":"Publish"}'
-    SqlPackagePath: 'C:\\tools\\sqlpackage'
-    DacpacPath: './packages/db.dacpac'
-    UserName: 'sqladmin'
-    UseMultiSubnetFailover: 'true'
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+Get-Item : Cannot find path 'Env:\ArtifactDownloadPath' because it does not exist.
+At C:\actions-runner\_work\_temp\8b7cc68d-8972-40be-9c80-e8f4abaf5c2d.ps1:19 char:13
++   if (-not (Get-Item -Path "env:${input}")) {
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Env:\ArtifactDownloadPath:String) [Get-Item], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetItemCommand
 
 
 #####################################
