@@ -1,3 +1,5 @@
+paassql-pipelines/generate-password/action.yaml: -
+
 name: 'Generate and Store Password'
 description: 'Generates a secure 12-character password (2 of each type) and stores it in AWS SSM'
 
@@ -16,7 +18,6 @@ outputs:
   generated-password:
     description: 'The generated password'
     value: ${{ steps.generate-password.outputs.generated-password }}
-paassql-pipelines/generate-password/action.yaml: -
 
 runs:
   using: "composite"
