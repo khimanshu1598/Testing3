@@ -1,139 +1,59 @@
-paassql-pipelines/download-package-and-contributor-package/action.yaml: -
+name: 'Generate and Store Password'
+description: 'Generates a secure 12-character password (2 of each type) and stores it in AWS SSM'
 
-name: 'Deploy and extract packages from JFrog artifactory'
-description: 'Deploy and extract the JFrog artifactories which are required for the DACPAC deployment.'
 inputs:
-  nuget-pkg-download-path:
-    description: 'Download Path where the latest NuGet package will be downloaded'
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
     required: true
-  nuget-pkg-extract-path:
-    description: 'Extract Path where the latest NuGet package will be extracted'
+  aws-region:
+    description: 'AWS region details'
     required: true
-  package-name:
-    description: 'The name of JFrog artifactory which is downloaded'
-    required: true
-  webrequest-uri:
-    description: 'The URL from where the package needs to be downloaded'
-    required: true
+
+outputs:
+  parameter-path:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    value: ${{ steps.store.outputs.parameter-path }}
+  generated-password:
+    description: 'The generated password'
+    value: ${{ steps.generate-password.outputs.generated-password }}
+paassql-pipelines/generate-password/action.yaml: -
 
 runs:
   using: "composite"
   steps:
-  - name: Deploy NuGet Package
+  - name: Generate password
+    id: generate-password
     shell: powershell
     run: |
-      
-      # Remove any existing files in the download folder (if any)
-      if (Test-Path -Path ${{ inputs.nuget-pkg-download-path }}) {
-          Write-Host "Cleaning up the download folder"
-          Remove-Item -Path "${{ inputs.nuget-pkg-download-path }}\*" -Recurse -Force
-      } else {
-          Write-Host "Creating new download folder"
-          New-Item -ItemType Directory -Path ${{ inputs.nuget-pkg-download-path }} -Force
-      }
-        Invoke-WebRequest -Uri "${{ inputs.webrequest-uri }}\${{ inputs.package-name }}" -OutFile "${{ inputs.nuget-pkg-download-path }}\${{ inputs.package-name }}" 
-        Get-ChildItem -Path ${{ inputs.nuget-pkg-download-path }} -Filter *.nupkg | Select-Object FullName
+      # Generate 2 of each character type (total 12 chars)
+      $upper = (65..90 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+      $lower = (97..122 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+      $numbers = (48..57 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+      $special = "!#%"
 
-  - name: Extract .nupkg to employee invitation DB packages
-    run: |
-      # Ensure the extraction folder exists and is empty
+      # Combine and shuffle
+      $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
 
-      # Remove any existing files in the extraction folder (if any)
-      if (Test-Path -Path ${{ inputs.nuget-pkg-extract-path }}) {
-          Write-Host "Cleaning up the extraction folder"
-          Remove-Item -Path "${{ inputs.nuget-pkg-extract-path }}\*" -Recurse -Force
-      } else {
-          Write-Host "Creating new extraction folder"
-          New-Item -ItemType Directory -Path ${{ inputs.nuget-pkg-extract-path }} -Force
-      }
+      echo "::add-mask::$password"
+      echo "generated-password=$password" >> $env:GITHUB_OUTPUT
 
-      #Get the first .nupkg file in the directory
-      $nupkg = Get-ChildItem -Path ${{ inputs.nuget-pkg-download-path }} -Filter *.nupkg | Select-Object -First 1
+      # Store it in a temporary file for next step
+      Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
 
-      if ($nupkg -eq $null) {
-        Write-Error "No .nupkg file found in the directory!"
-        exit 1
-      }
-
-      Write-Host "Found .nupkg file: $($nupkg.FullName)"
-
-      # Load required .NET types
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        Add-Type -AssemblyName System.IO.Compression
-
-        $zipPath = $nupkg.FullName
-        $extractPath = "${{ inputs.nuget-pkg-extract-path }}"
-
-        # Ensure the target folder exists
-        if (-not (Test-Path $extractPath)) {
-            New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
-        }
-
-        # Open the ZIP file
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-
-        foreach ($entry in $zip.Entries) {
-            $destination = Join-Path $extractPath $entry.FullName
-
-            # Create subdirectories if necessary
-            $dir = [System.IO.Path]::GetDirectoryName($destination)
-            if (-not (Test-Path $dir)) {
-                New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            }
-
-            # Only extract files, skip directories
-            if (![string]::IsNullOrWhiteSpace($entry.Name)) {
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $true)
-            }
-        }
-
-        $zip.Dispose()
-        Write-Host "Extracted $($nupkg.Name) to ${{ inputs.nuget-pkg-extract-path }}"
-
-        # Get-ChildItem -Path ${{ inputs.nuget-pkg-extract-path }} -Recurse
+  - name: Store in Parameter Store
+    id: store
     shell: powershell
-
-  - name: Files Present in Nuget Package
     run: |
-      echo "Listing files in dacpacs directory:"
-      ls -l "${{ inputs.nuget-pkg-extract-path }}"
-    shell: bash
+      $parameterName = "${{ inputs.sql-password-parameter-store }}"
+      $region = "${{ inputs.aws-region }}"
+      $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
 
+      aws ssm put-parameter `
+        --name "$parameterName" `
+        --value "$password" `
+        --type "SecureString" `
+        --overwrite `
+        --region "$region"
 
-Internal Actions: -
-For internal actions which have been developed for internal Xero use:
-
-Make sure your work is registered as a JIRA issue with the appropriate component added;
-Create a fork of this repo;
-Start your commit messages with the Jira ticket number;
-Make sure you read and follow the style guide and security considerations below;
-Open a PR - Once you are ready to get it checked and reviewed, describe your changes in a meaningful way on your PR based on our template;
-Ensure there's adequate documentation (readme.md) and links from the main readme;
-Squash-merge the changes - if everything checked out green.
-
-
-Style Guide / Coding conventions
-Action folder must be named using kebab-case;
-Action folder must include a README.md file;
-Readme must document the entire list of action inputs, including description, default values and whether the input is required or not;
-Readme must include example of usage;
-Readme must include supported runner operation system (OS);
-Readme must include necessary permissions for the action when applicable;
-Action must be included in the README.md file in the root folder with a link and a description;
-Action must be tested;
-Required input must have a validation/guards with a friendly message when value is not provided;
-Conditional required inputs must also have validation/guards;
-Action must not include a checkout step; the checkout should be handled by the consumer of the action;
-Input named working-directory must be used to specify the directory in which the action will run when applicable.
-
-Security considerations
-Please read the following documents here and Security Best Practices | Github Actions @ABC. Make sure you are following the best practices and you have reviewed XIS/XAS top 10 items.
-
-Testing
-Actions in this repo are available for use across Xero. We aim to provide good coverage of use cases, minimize the risk of impacting other Xeros, and facilitate later contributions to actions and workflows.
-
-Action must have a testing workflow in the folder .github/workflows/ which should run when changes in the action folder are detected in a pull request;
-The workflow file must be named test-{action-name}.yml or test-{workflow-name}.yml;
-Tests must run against the matrix of supported operating systems;
-Docker based actions can only run on linux runners, matrix tests are not required;
-Include both success and failure test cases when possible.
+      echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
+      Remove-Item "$env:GITHUB_WORKSPACE\generated_password.txt" -Force
