@@ -1,47 +1,112 @@
+name: 'Deploy and extract packages from JFrog artifactory'
+description: 'Downloads a NuGet .nupkg package from JFrog Artifactory and extracts it to a target directory for DACPAC deployments.'
 
----
+inputs:
+  nuget-pkg-download-path:
+    description: 'Download path where the NuGet package will be saved.'
+    required: true
+  nuget-pkg-extract-path:
+    description: 'Path where the contents of the NuGet package will be extracted.'
+    required: true
+  package-name:
+    description: 'Name of the .nupkg file to download.'
+    required: true
+  webrequest-uri:
+    description: 'Full or base URL of the Artifactory server.'
+    required: true
 
-## ✅ 2. `.github/workflows/test-download-package-and-contributor-package.yml`
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: powershell
+      run: |
+        if (-not "${{ inputs.nuget-pkg-download-path }}") {
+          Write-Error "❌ Input 'nuget-pkg-download-path' is required but not provided."
+          exit 1
+        }
+        if (-not "${{ inputs.nuget-pkg-extract-path }}") {
+          Write-Error "❌ Input 'nuget-pkg-extract-path' is required but not provided."
+          exit 1
+        }
+        if (-not "${{ inputs.package-name }}") {
+          Write-Error "❌ Input 'package-name' is required but not provided."
+          exit 1
+        }
+        if (-not "${{ inputs.webrequest-uri }}") {
+          Write-Error "❌ Input 'webrequest-uri' is required but not provided."
+          exit 1
+        }
 
-```yaml
-name: Test download-package-and-contributor-package
+    - name: Clean or create download folder
+      shell: powershell
+      run: |
+        if (Test-Path -Path "${{ inputs.nuget-pkg-download-path }}") {
+          Write-Host "🧹 Cleaning existing download folder..."
+          Remove-Item -Path "${{ inputs.nuget-pkg-download-path }}\*" -Recurse -Force
+        } else {
+          Write-Host "📂 Creating new download folder..."
+          New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-download-path }}" -Force
+        }
 
-on:
-  pull_request:
-    paths:
-      - 'paassql-pipelines/download-package-and-contributor-package/**'
+    - name: Download NuGet package from Artifactory
+      shell: powershell
+      run: |
+        $url = "${{ inputs.webrequest-uri }}\${{ inputs.package-name }}"
+        $outputFile = "${{ inputs.nuget-pkg-download-path }}\${{ inputs.package-name }}"
 
-jobs:
-  test-action:
-    name: Run Action on Windows
-    runs-on: windows-latest
+        Write-Host "🌐 Downloading package from $url..."
+        Invoke-WebRequest -Uri $url -OutFile $outputFile
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+        if (-not (Test-Path $outputFile)) {
+          Write-Error "❌ Failed to download the package."
+          exit 1
+        }
 
-      - name: Set up test directories
-        run: |
-          New-Item -ItemType Directory -Path ./tmp/download -Force | Out-Null
-          New-Item -ItemType Directory -Path ./tmp/extract -Force | Out-Null
-        shell: powershell
+        Write-Host "✅ Download complete: $outputFile"
 
-      - name: Create dummy NuGet package
-        run: |
-          echo "test-content" > ./tmp/download/dummy.txt
-          Compress-Archive -Path ./tmp/download/dummy.txt -DestinationPath ./tmp/download/test-package.nupkg
-        shell: powershell
+    - name: Clean or create extract folder
+      shell: powershell
+      run: |
+        if (Test-Path -Path "${{ inputs.nuget-pkg-extract-path }}") {
+          Write-Host "🧹 Cleaning existing extraction folder..."
+          Remove-Item -Path "${{ inputs.nuget-pkg-extract-path }}\*" -Recurse -Force
+        } else {
+          Write-Host "📂 Creating new extraction folder..."
+          New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-extract-path }}" -Force
+        }
 
-      - name: Run action with mocked download
-        uses: ./paassql-pipelines/download-package-and-contributor-package
-        with:
-          nuget-pkg-download-path: './tmp/download'
-          nuget-pkg-extract-path: './tmp/extract'
-          package-name: 'test-package.nupkg'
-          webrequest-uri: 'file://'
+    - name: Extract .nupkg file contents
+      shell: powershell
+      run: |
+        $nupkg = Get-ChildItem -Path "${{ inputs.nuget-pkg-download-path }}" -Filter *.nupkg | Select-Object -First 1
 
-      - name: Verify extracted files
-        run: |
-          Write-Host "Contents of extraction directory:"
-          Get-ChildItem -Recurse ./tmp/extract
-        shell: powershell
+        if (-not $nupkg) {
+          Write-Error "❌ No .nupkg file found to extract."
+          exit 1
+        }
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-Type -AssemblyName System.IO.Compression
+
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
+
+        foreach ($entry in $zip.Entries) {
+          $destination = Join-Path "${{ inputs.nuget-pkg-extract-path }}" $entry.FullName
+          $dir = [System.IO.Path]::GetDirectoryName($destination)
+          if (-not (Test-Path $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          }
+          if (![string]::IsNullOrWhiteSpace($entry.Name)) {
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $true)
+          }
+        }
+
+        $zip.Dispose()
+        Write-Host "✅ Extracted contents to ${{ inputs.nuget-pkg-extract-path }}"
+
+    - name: List extracted files (debug)
+      shell: bash
+      run: |
+        echo "📁 Contents of extraction directory:"
+        ls -l "${{ inputs.nuget-pkg-extract-path }}"
