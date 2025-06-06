@@ -1,31 +1,47 @@
-# 🚀 Deploy and Extract Packages from JFrog Artifactory
-
-This GitHub Action downloads a NuGet `.nupkg` package from a specified JFrog Artifactory URL and extracts its contents to a target directory. It supports DACPAC deployment workflows by preparing required artifacts.
 
 ---
 
-## 📥 Inputs
-
-| Name                      | Description                                                          | Required | Default |
-|---------------------------|----------------------------------------------------------------------|----------|---------|
-| `nuget-pkg-download-path` | Directory path to store the downloaded NuGet package                 | Yes      | –       |
-| `nuget-pkg-extract-path`  | Directory path to extract the contents of the NuGet package          | Yes      | –       |
-| `package-name`            | File name of the package to be downloaded (e.g., `pkg.nupkg`)        | Yes      | –       |
-| `webrequest-uri`          | URL or base URI of the Artifactory endpoint                          | Yes      | –       |
-| `🖥️ Supported Runners`     | Only `windows-latest`. Uses PowerShell and .NET assemblies.           | –        | –       |
-| `🔐 Required Permissions`  | No GitHub permissions needed. Auth must be handled externally.        | –        | –       |
-
----
-
-## ▶️ Example Usage
+## ✅ 2. `.github/workflows/test-download-package-and-contributor-package.yml`
 
 ```yaml
-- uses: actions/checkout@v4
+name: Test download-package-and-contributor-package
 
-- name: Download and extract NuGet package
-  uses: ./paassql-pipelines/download-package-and-contributor-package
-  with:
-    nuget-pkg-download-path: './tmp/download'
-    nuget-pkg-extract-path: './tmp/extract'
-    package-name: 'my-library.nupkg'
-    webrequest-uri: 'https://repo.myorg.com/artifactory/libs-release-local'
+on:
+  pull_request:
+    paths:
+      - 'paassql-pipelines/download-package-and-contributor-package/**'
+
+jobs:
+  test-action:
+    name: Run Action on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up test directories
+        run: |
+          New-Item -ItemType Directory -Path ./tmp/download -Force | Out-Null
+          New-Item -ItemType Directory -Path ./tmp/extract -Force | Out-Null
+        shell: powershell
+
+      - name: Create dummy NuGet package
+        run: |
+          echo "test-content" > ./tmp/download/dummy.txt
+          Compress-Archive -Path ./tmp/download/dummy.txt -DestinationPath ./tmp/download/test-package.nupkg
+        shell: powershell
+
+      - name: Run action with mocked download
+        uses: ./paassql-pipelines/download-package-and-contributor-package
+        with:
+          nuget-pkg-download-path: './tmp/download'
+          nuget-pkg-extract-path: './tmp/extract'
+          package-name: 'test-package.nupkg'
+          webrequest-uri: 'file://'
+
+      - name: Verify extracted files
+        run: |
+          Write-Host "Contents of extraction directory:"
+          Get-ChildItem -Recurse ./tmp/extract
+        shell: powershell
