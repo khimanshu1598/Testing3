@@ -54,3 +54,63 @@ The action will fail if:
 - SQL script returns errors
 - Invalid activity type is specified
 - AWS permissions are insufficient
+
+
+==========
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        # Required inputs validation
+        if [ -z "${{ inputs.sql-password-parameter-store }}" ]; then
+          echo "::error::sql-password-parameter-store is required"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.db-name }}" ]; then
+          echo "::error::db-name is required"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.sql-user-name }}" ]; then
+          echo "::error::sql-user-name is required"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.sql-activity }}" ]; then
+          echo "::error::sql-activity is required"
+          exit 1
+        fi
+        
+        if [[ ! "${{ inputs.sql-activity }}" =~ ^(create-user|validate-delete-user|delete-user)$ ]]; then
+          echo "::error::Invalid sql-activity. Must be one of: create-user, validate-delete-user, delete-user"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.destination-path }}" ]; then
+          echo "::error::destination-path is required"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.aws-region }}" ]; then
+          echo "::error::aws-region is required"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.username }}" ]; then
+          echo "::error::username is required"
+          exit 1
+        fi
+        
+        if [[ ! "${{ inputs.needs-windows-authentication }}" =~ ^(true|false)$ ]]; then
+          echo "::error::needs-windows-authentication must be either 'true' or 'false'"
+          exit 1
+        fi
+        
+        if [ -z "$MATRIX_INSTANCE_LIST" ]; then
+          echo "::error::MATRIX_INSTANCE_LIST environment variable is required"
+          exit 1
+        fi
