@@ -1,181 +1,101 @@
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Get-Item : Cannot find path 'Env:\ArtifactDownloadPath' because it does not exist.
-At C:\actions-runner\_work\_temp\8b7cc68d-8972-40be-9c80-e8f4abaf5c2d.ps1:19 char:13
-+   if (-not (Get-Item -Path "env:${input}")) {
-+             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (Env:\ArtifactDownloadPath:String) [Get-Item], ItemNotFoundException
-    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetItemCommand
-
-
-#####################################
-
-name: 'Build Output path and Run the DACPAC Deployment script'
-description: 'Uses sqlpackage.exe to run DACPAC operations like DeployReport, Script, Extract, and Publish.'
-
+name: 'Get EC2 Instance ID from Dynamite API'
+description: 'Retrieves instance ID based on DB name, role, AWS region and environment'
 inputs:
-  ArtifactDownloadPath:
-    description: 'Path where the Artifacts will be stored'
-    required: true
-  DatabaseName:
-    description: 'The database name the DACPAC is being applied against'
-    required: true
-  ReleaseNumber:
-    description: 'Release Number of the build'
-    required: true
-  FileName:
-    description: 'The name of Output File'
-    required: true
-  targetServer:
+  target-servers:
     description: 'The host to deploy the DACPAC to'
     required: true
-  Action:
-    description: 'The action to have sqlpackage.exe execute. One of: extract, deployreport, script, publish'
+  db-name:
+    description: 'The database name the DACPAC is being applied against'
     required: true
-  PublishProfileFilePath:
-    description: 'The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
+  role-list:
+    description: 'List of roles associated with target servers (JSON array or comma-separated)'
     required: true
-  GithubActor:
-    description: 'Returns the username of the person or app that triggered the workflow run.'
-    required: true
-  SQLPackageDeployProperties:
-    description: 'Collection of SQLPackage.exe Properties in JSON format'
-    required: true
-  SQLCMDVariables:
-    description: 'Collection of SQLCMD Variables in JSON format'
-    required: true
-  SQLPackageParameters:
-    description: 'Collection of SQLPackage.exe Parameters in JSON format'
-    required: true
-  SqlPackagePath:
-    description: 'Path to sqlpackage.exe'
-    required: true
-  DacpacPath:
-    description: '[Optional] Fully qualified path to the DACPAC to publish.'
+  db-server-host:
+    description: 'DB server hostname (depending upon the environment)'
     required: false
-  UserName:
-    description: 'SQL username to be used for performing actions'
+  is-test-account:
+    description: 'Boolean value for impersonating user via Windows Authentication'
     required: true
-  UseMultiSubnetFailover:
-    description: 'Add MultiSubnetFailover=True to the connection string'
+    default: 'false'
+  aws-region:
+    description: 'AWS region where the instances are located'
     required: true
+  working-directory:
+    description: 'Directory where the action will execute'
+    required: false
+    default: '.'
+    
+outputs:
+  MATRIX_INSTANCE_LIST:
+    description: 'JSON matrix containing instance IDs, DB server names, and roles'
 
 runs:
-  using: composite
+  using: "composite"
   steps:
-    - name: Validate Required Inputs
-      shell: powershell
+    - name: Validate inputs
+      shell: bash
       run: |
-        $requiredInputs = @(
-          'ArtifactDownloadPath',
-          'DatabaseName',
-          'ReleaseNumber',
-          'FileName',
-          'targetServer',
-          'Action',
-          'PublishProfileFilePath',
-          'SQLPackageDeployProperties',
-          'SQLCMDVariables',
-          'SQLPackageParameters',
-          'SqlPackagePath',
-          'UserName',
-          'UseMultiSubnetFailover'
-        )
+        if [ -z "${{ inputs.target-servers }}" ]; then
+          echo "::error::target-servers input is required"
+          exit 1
+        fi
+        if [ -z "${{ inputs.db-name }}" ]; then
+          echo "::error::db-name input is required"
+          exit 1
+        fi
+        if [ -z "${{ inputs.role-list }}" ]; then
+          echo "::error::role-list input is required"
+          exit 1
+        fi
+        if [ -z "${{ inputs.aws-region }}" ]; then
+          echo "::error::aws-region input is required"
+          exit 1
+        fi
+        
+    # Rest of your existing steps remain the same...
+    # [Previous PowerShell steps here...]
 
-        foreach ($input in $requiredInputs) {
-          if (-not (Get-Item -Path "env:${input}")) {
-            Write-Error "❌ Required input '$input' not provided."
-            exit 1
-          }
-        }
 
-    - name: Build Output path and Run the DACPAC Deployment script
-      shell: powershell
-      env:
-        ArtifactDownloadPath: ${{ inputs.ArtifactDownloadPath }}
-        DatabaseName: ${{ inputs.DatabaseName }}
-        ReleaseNumber: ${{ inputs.ReleaseNumber }}
-        FileName: ${{ inputs.FileName }}
-        targetServer: ${{ inputs.targetServer }}
-        Action: ${{ inputs.Action }}
-        PublishProfileFilePath: ${{ inputs.PublishProfileFilePath }}
-        GithubActor: ${{ inputs.GithubActor }}
-        SQLPackageDeployProperties: ${{ inputs.SQLPackageDeployProperties }}
-        SQLCMDVariables: ${{ inputs.SQLCMDVariables }}
-        SQLPackageParameters: ${{ inputs.SQLPackageParameters }}
-        UseMultiSubnetFailover: ${{ inputs.UseMultiSubnetFailover }}
-        SqlPackagePath: ${{ inputs.SqlPackagePath }}
-        DacpacPath: ${{ inputs.DacpacPath }}
-        UserName: ${{ inputs.UserName }}
-      run: |
-        function Format-JsonAsKeyValue {
-            param ([string]$jsonString)
-            if ([string]::IsNullOrWhiteSpace($jsonString)) { return "" }
-            try {
-              $json = $jsonString | ConvertFrom-Json
-              if (-not $json) { return "" }
-            } catch {
-              Write-Host "⚠️ Invalid JSON format."
-              return ""
-            }
-            return ($json.psobject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ","
-        }
+#################
 
-        $SQLCMDVariablesUpdated = $env:SQLCMDVariables -replace '#{Octopus.Release.Number}', $env:ReleaseNumber
-        $DeployProps = Format-JsonAsKeyValue $env:SQLPackageDeployProperties
-        $CMDVars = Format-JsonAsKeyValue $SQLCMDVariablesUpdated
-        $Params = Format-JsonAsKeyValue $env:SQLPackageParameters
+# Get EC2 Instance ID from Dynamite API
 
-        $matrixJson = "$env:MATRIX_INSTANCE_LIST"
-        if (-not $matrixJson.StartsWith('[')) {
-          $matrixJson = @($matrixJson | ConvertFrom-Json) | ConvertTo-Json -Compress
-        }
-        $parsedMatrix = $matrixJson | ConvertFrom-Json
-        $allOutputPaths = ""
+Retrieves EC2 instance IDs based on database name, role, AWS region and environment using the Dynamite API.
 
-        foreach ($item in $parsedMatrix) {
-            $instance = $item.instance
-            $dbServer = $item.dbServerName
-            $role = $item.role
+## Inputs
 
-            Write-Host "🔁 Running action $($env:Action) for Instance: $instance, Role: $role, DB Server: $dbServer"
+| Name | Description | Required | Default |
+|------|-------------|----------|---------|
+| `target-servers` | The host to deploy the DACPAC to | yes | - |
+| `db-name` | The database name being applied against | yes | - |
+| `role-list` | List of roles (JSON array or comma-separated) | yes | - |
+| `db-server-host` | DB server hostname | no | - |
+| `is-test-account` | Use Windows Authentication impersonation | yes | `false` |
+| `aws-region` | AWS region where instances are located | yes | - |
+| `working-directory` | Directory where action executes | no | `.` |
 
-            $OutputFilePath = ""
-            if ($env:Action -in @("DeployReport", "Script")) {
-                $OutputFolder = Join-Path $env:ArtifactDownloadPath "deployreports"
-                $OutputFileName = "$($env:DatabaseName).$($env:ReleaseNumber).$role.$($env:FileName)"
-                $OutputFilePath = Join-Path $OutputFolder $OutputFileName
+## Outputs
 
-                $outputFileNameOnly = Split-Path $OutputFilePath -Leaf
-                $outputDirectoryOnly = Split-Path $OutputFilePath -Parent
+- `MATRIX_INSTANCE_LIST`: JSON matrix containing instance IDs, DB server names, and roles
 
-                $sanitizedTargetServer = $env:targetServer.TrimEnd('.')
-                $outputFileNameOnlyWithDB = $outputFileNameOnly.Replace('[DatabaseName]', $env:DatabaseName).TrimStart('.')
-                $OutputFilePath = Join-Path $outputDirectoryOnly "$sanitizedTargetServer.$outputFileNameOnlyWithDB"
+## Example Usage
 
-                if (!(Test-Path (Split-Path $OutputFilePath))) {
-                    New-Item -ItemType Directory -Path (Split-Path $OutputFilePath) -Force
-                }
-                $allOutputPaths += "$OutputFilePath,"
-            }
+```yaml
+- uses: paassql-pipelines/get-ec2instance-id@v1
+  with:
+    target-servers: 'my-db-server'
+    db-name: 'production-db'
+    role-list: '["primary", "secondary"]'
+    aws-region: 'us-east-1'
+    is-test-account: false
+```
 
-            & $env:scriptPath `
-              -Action "$env:Action" `
-              -DacpacPath "$env:DacpacPath" `
-              -OutputPath "$OutputFilePath" `
-              -ServerInstance "$dbServer" `
-              -DatabaseName "$env:DatabaseName" `
-              -UserName "$env:UserName" `
-              -Password $env:retrievedPassword `
-              -SqlPackagePath "$env:SqlPackagePath" `
-              -PublishProfilePath "$env:PublishProfileFilePath" `
-              -UseMultiSubnetFailover "$env:UseMultiSubnetFailover" `
-              -SQLPackageDeployProperties "$DeployProps" `
-              -SQLCmdVariables "$CMDVars" `
-              -SQLPackageParameters "$Params"
-        }
+## Supported Runners
 
-        if ($env:Action -in @("DeployReport", "Script")) {
-            $allOutputPaths = $allOutputPaths.TrimEnd(',')
-            "OutPutPath=$allOutputPaths" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        }
+- Windows
+- Linux (requires PowerShell Core)
+
+## Required Permissions
+
+- AWS EC2 read permissions (when `is-test-account: true`)
+- Network access to Dynamite API (when `is-test-account: false`)
