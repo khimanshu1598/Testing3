@@ -20,6 +20,7 @@ inputs:
   aws-region:
     description: 'AWS region where the instances are located'
     required: true
+    default: 'us-west-2'
 
 outputs:
   MATRIX_INSTANCE_LIST:
@@ -29,66 +30,36 @@ outputs:
 runs:
   using: "composite"
   steps:
-  - name: Debug env.AWS_REGION
-    shell: powershell
-    run: |
-      echo "AWS_REGION is: ${{ env.AWS_REGION }}"
+    - name: Debug Inputs
+      shell: bash
+      run: |
+        echo "Input parameters received:"
+        echo "target-servers: ${{ inputs.target-servers }}"
+        echo "db-name: ${{ inputs.db-name }}"
+        echo "role-list: ${{ inputs.role-list }}"
+        echo "db-server-host: ${{ inputs.db-server-host }}"
+        echo "is-test-account: ${{ inputs.is-test-account }}"
+        echo "aws-region: ${{ inputs.aws-region }}"
 
-  - name: Validate inputs
-    shell: powershell
-    run: |
-      if (-not "${{ inputs.target-servers }}") {
-          Write-Error "Input 'target-servers' is required but not provided."
+    - name: Validate Inputs
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.target-servers }}" ]; then
+          echo "::error::Input 'target-servers' is required but not provided."
           exit 1
-      }
+        fi
 
-      if (-not "${{ inputs.db-name }}") {
-          Write-Error "Input 'db-name' is required but not provided."
+        if [ -z "${{ inputs.db-name }}" ]; then
+          echo "::error::Input 'db-name' is required but not provided."
           exit 1
-      }
+        fi
 
-      if (-not "${{ inputs.role-list }}") {
-          Write-Error "Input 'role-list' is required but not provided."
+        if [ -z "${{ inputs.role-list }}" ]; then
+          echo "::error::Input 'role-list' is required but not provided."
           exit 1
-      }
+        fi
 
-      if (-not "${{ inputs.aws-region }}") {
-        Write-Error "Input 'aws-region' is required but not provided."
-        exit 1
-      }
-
-
-#############################
-
-        - name: "Fetch the Instance ID and Node ID based on USE_CLUSTER_NAMES value"
-          id: fetch-instance-node
-          uses: xero-internal/dacpac-actions/paassql-pipelines/get-ec2instance-id@PIP-2135-Himanshu
-          with:
-            target-servers: ${{ env.TARGET_SERVERS }}
-            db-name: ${{ env.DB_NAME }}
-            role-list: ${{ env.USE_CLUSTER_NAMES == 'true' && '["primary","sync_secondary","principal_read_only"]' || 'primary' }}
-            db-server-host: ${{ env.GITHUB_ENVIRONMENT == 'production' && 'prd.aws.xero.com' || 'uat.aws.xero.com' }}
-            is-test-account: false
-            aws-region: ${{ env.AWS_REGION }}
-
-###########################
-
-Run xero-internal/dacpac-actions/paassql-pipelines/get-ec2instance-id@PIP-2135-Himanshu
-Run echo "AWS_REGION is: us-west-2"
-  
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-AWS_REGION is: us-west-2
-Run if (-not "globaltaxmapper.db.livestage6.test.xero.com.") {
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-C:\actions-runner\_work\_temp\0ad2dba9-ae58-43c1-92d7-6e94b32f6680.ps1 : Input 'aws-region' is required but not 
-provided.
-At line:1 char:1
-+ . 'C:\actions-runner\_work\_temp\0ad2dba9-ae58-43c1-92d7-6e94b32f6680 ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
-    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,0ad2dba9-ae58-43c1-92d7-6e94b32f6680.p 
-   s1
- 
-Error: Process completed with exit code 1.
+        if [ -z "${{ inputs.aws-region }}" ]; then
+          echo "::error::Input 'aws-region' is required but not provided."
+          exit 1
+        fi
