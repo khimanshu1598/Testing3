@@ -1,158 +1,56 @@
-paassql-pipelines/invoke-sql-actions/action.yaml: -
+# Invoke SQL Actions
 
-name: 'Invoke sql_actions.ps1 on remote/target server.'
-description: 'Using aws ssm to invoke the script based on passed parameters.'
+Executes `sql-actions.ps1` on remote EC2 instances via AWS SSM to perform SQL user management operations.
 
-inputs:
-  sql-password-parameter-store:
-    description: 'Name of the system manager parameter store which contains password for sql user'
-    required: true
-  db-name:
-    description: 'Name of the DB'
-    required: true
-  sql-user-name:
-    description: 'Name of the sql user to be created'
-    required: true
-  sql-activity:
-    description: 'Activity to perform [create-user, validate-delete-user, delete-user ]'
-    required: true
-  destination-path:
-    description: 'Path on the target server where script needs to be added'
-    required: true
-  aws-region:
-    description: 'AWS region details'
-    required: true
-  username:
-    description: 'Username of impersonated user in domainName\username format'
-    required: true
-  needs-windows-authentication:
-    description: 'Boolean value to impersonate the user using Windows Authentication or SQL Server Authentication'
-    required: true
-    default: true
+## Inputs
 
-runs:
-  using: composite
-  steps:
-  - name: Invoke sql actions script on EC2 via SSM
-    shell: bash
-    run: |
-      #Fetch sql-user password from parameter store
-      sqlPassword=$(aws ssm get-parameter \
-      --name ${{ inputs.sql-password-parameter-store }} \
-      --with-decryption \
-      --query "Parameter.Value" \
-      --output text)
+| Name | Description | Required | Default | Valid Values |
+|------|-------------|----------|---------|--------------|
+| `sql-password-parameter-store` | AWS SSM Parameter Store name containing SQL password | Yes | - | - |
+| `db-name` | Target database name | Yes | - | - |
+| `sql-user-name` | SQL user to create/manage | Yes | - | - |
+| `sql-activity` | Operation to perform | Yes | - | `create-user`, `validate-delete-user`, `delete-user` |
+| `destination-path` | Remote path to `sql-actions.ps1` | Yes | - | - |
+| `aws-region` | AWS region of target instances | Yes | - | - |
+| `username` | Domain user in `domain\user` format | Yes | - | - |
+| `needs-windows-authentication` | Use Windows Auth instead of SQL Auth | Yes | `true` | `true`, `false` |
 
-      matrixJson="$MATRIX_INSTANCE_LIST"
-      if [[ "$matrixJson" != \[* ]]; then
-        # echo "Wrapping single JSON object in an array..."
-        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
-      fi
-      # echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+## Prerequisites
 
+1. **MATRIX_INSTANCE_LIST** environment variable must be set (from previous step)
+2. AWS credentials with permissions to:
+   - `ssm:GetParameter`
+   - `ssm:SendCommand`
+   - `ssm:ListCommandInvocations`
+3. Target EC2 instances must have SSM agent installed
 
-      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
-        instance=$(echo "$item" | jq -r '.instance')
-        dbServer=$(echo "$item" | jq -r '.dbServerName')
-        role=$(echo "$item" | jq -r '.role')
+## Example Usage
 
-        echo "----------------------------------"
-        echo "Sending to - Instance: $instance, Role: $role, DB Server: $dbServer for ${{ inputs.sql-activity }}"
+```yaml
+- uses: paassql-pipelines/invoke-sql-actions@v1
+  with:
+    sql-password-parameter-store: '/prod/db/password'
+    db-name: 'customer_db'
+    sql-user-name: 'github_actions_user'
+    sql-activity: 'create-user'
+    destination-path: 'C:\scripts'
+    aws-region: 'us-east-1'
+    username: 'DOMAIN\svc_github'
+    needs-windows-authentication: true
+  env:
+    MATRIX_INSTANCE_LIST: ${{ steps.previous-step.outputs.MATRIX_INSTANCE_LIST }}
+```
 
-        #Input parameters required to run sql-actions.ps1
-        serverInstance=$dbServer
-        databaseName=${{ inputs.db-name }}
-        sqlUserName=${{ inputs.sql-user-name }}
-        sqlPassword=$sqlPassword
-        adUserSsmPassword='/secure/dbpassword'
-        sqlActivity=${{ inputs.sql-activity }}
-        username=${{ inputs.username }}
-        needsWindowsAuthentication=${{ inputs.needs-windows-authentication }}
+## Supported Runners
 
-        echo "Database Name is $databaseName"
+- **Linux**: Requires PowerShell Core and AWS CLI
+- **Windows**: Native PowerShell support
 
-        # PowerShell command to invoke the script directly from the remote server
-        PS_COMMAND="powershell -File "${{ inputs.destination-path }}\\sql-actions.ps1" -serverInstance '$serverInstance' -databaseName '$databaseName' -sqlUserName '$sqlUserName' -sqlPassword '$sqlPassword' -adUserSsmPassword '$adUserSsmPassword' -username '$username' -sqlActivity '$sqlActivity' -needsWindowsAuthentication '$needsWindowsAuthentication' -Verbose"
+## Error Handling
 
-        #Use AWS SSM command to run the above powershell script
-        ssmCommand=$(aws ssm send-command \
-          --document-name "AWS-RunPowerShellScript" \
-          --instance-ids "$instance" \
-          --region "${{ inputs.aws-region }}" \
-          --comment "Invoking script sql-actions.ps1 on target instance via GitHub Actions for $sqlActivity" \
-          --parameters "commands=[\"$PS_COMMAND\"]" \
-          --query "Command.CommandId" \
-          --output text)
-
-        # Exporting commandId for next steps.
-        echo "commandId=$ssmCommand" >> $GITHUB_ENV
-      done
-
-  - name: Check command status
-    shell: bash
-    run: |
-      matrixJson="$MATRIX_INSTANCE_LIST"
-
-      if [[ "$matrixJson" != \[* ]]; then
-        # echo "Wrapping single JSON object in an array..."
-        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
-      fi
-
-      # echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
-
-      mapfile -t matrixItems < <(echo "$matrixJson" | jq -c '.[]')
-
-      for item in "${matrixItems[@]}"; do
-        instance=$(echo "$item" | jq -r '.instance')
-        dbServer=$(echo "$item" | jq -r '.dbServerName')
-        role=$(echo "$item" | jq -r '.role')
-
-        # echo "----------------------------------"
-        # echo "Sending to - Instance: $instance, Role: $role, DB Server: $dbServer for ${{ inputs.sql-activity }}"
-
-        echo "Command ID generated: $commandId"
-
-        if [[ -n "$commandId" ]]; then
-          echo "SSM command sent successfully!"
-          retries=3
-          attempt=0
-          success=false
-          while [[ $attempt -lt $retries && $success == false ]]; do
-            # Attempt to wait for the command execution to finish
-            echo "Simulating attempt #$((attempt + 1))"
-            # Actual command (uncomment for real use):
-            if aws ssm wait command-executed \
-                --command-id "$commandId" \
-                --instance-id "$instance"; then
-              success=true
-              echo "SSM command executed successfully!"
-            else
-              echo "SSM command execution failed. Retrying..."
-              attempt=$((attempt + 1))
-              sleep 5
-            fi
-          done
-          if [[ $success == false ]]; then
-            echo "Failed to execute the SSM command after $retries attempts."
-            exit 1
-          fi
-        else
-          echo "Failed to send SSM command."
-          exit 1
-        fi
-
-        commandStatus=$(aws ssm list-command-invocations \
-          --command-id "$commandId" \
-          --details \
-          --output json)
-
-        standardOutput=$(echo "$commandStatus" | jq -r '.CommandInvocations[0].CommandPlugins[0].Output')
-
-        if echo "$standardOutput" | grep -q "ERROR"; then
-          echo "Error detected in the command output:"
-          echo "$standardOutput"
-          exit 1
-        else
-          echo "No error detected in the command output."
-        fi
-      done
+The action will fail if:
+- Any required input is missing
+- SSM command execution fails
+- SQL script returns errors
+- Invalid activity type is specified
+- AWS permissions are insufficient
