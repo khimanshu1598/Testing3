@@ -1,131 +1,94 @@
+name: 'Get EC2 Instance ID from Dynamite API'
+description: 'Retrieves instance ID based on DB name, role, AWS region and environment'
+inputs:
+  target-servers:
+    description: 'The host to deploy the DACPAC to'
+    required: true
+  db-name:
+    description: 'The database name the DACPAC is being applied against'
+    required: true
+  role-list:
+    description: 'List of roles associated with target servers (JSON array or comma-separated)'
+    required: true
+  db-server-host:
+    description: 'DB server hostname (depending upon the environment)'
+    required: false
+  is-test-account:
+    description: 'Boolean value for impersonating user via Windows Authentication'
+    required: true
+    default: 'false'
+  aws-region:
+    description: 'AWS region where the instances are located'
+    required: true
+
+outputs:
+  MATRIX_INSTANCE_LIST:
+    description: 'JSON matrix containing instance IDs, DB server names, and roles'
+    value: ${{ steps.set-matrix.outputs.MATRIX_INSTANCE_LIST }}
+
 runs:
-  using: composite
+  using: "composite"
   steps:
-    - name: Validate inputs
-      shell: pwsh
-      run: |
-        # Required inputs validation
-        if (-not "${{ inputs.release-artifact }}") {
-          Write-Host "::error::release-artifact is required"
+  - name: Debug env.AWS_REGION
+    shell: powershell
+    run: |
+      echo "AWS_REGION is: ${{ env.AWS_REGION }}"
+
+  - name: Validate inputs
+    shell: powershell
+    run: |
+      if (-not "${{ inputs.target-servers }}") {
+          Write-Error "Input 'target-servers' is required but not provided."
           exit 1
-        }
-        
-        if (-not "${{ inputs.environment }}") {
-          Write-Host "::error::environment is required"
+      }
+
+      if (-not "${{ inputs.db-name }}") {
+          Write-Error "Input 'db-name' is required but not provided."
           exit 1
-        }
-        
-        if (-not "${{ inputs.new-relic-app-key }}") {
-          Write-Host "::error::new-relic-app-key is required"
+      }
+
+      if (-not "${{ inputs.role-list }}") {
+          Write-Error "Input 'role-list' is required but not provided."
           exit 1
-        }
-        
-        # Validate account ID is numeric
-        if (-not (${{ inputs.new-relic-app-key }} -match '^\d+$')) {
-          Write-Host "::error::new-relic-app-key must be a numeric account ID"
-          exit 1
-        }
-        
-        if (-not "${{ inputs.new-relic-api-key }}") {
-          Write-Host "::error::new-relic-api-key is required"
-          exit 1
-        }
-        
-        if (-not "${{ inputs.deployer }}") {
-          Write-Host "::error::deployer is required"
-          exit 1
-        }
-        
-        if (-not "${{ inputs.owner }}") {
-          Write-Host "::error::owner is required"
-          exit 1
-        }
-        
-        if (-not "${{ inputs.release-number }}") {
-          Write-Host "::error::release-number is required"
-          exit 1
-        }
-        
-        if (-not "${{ inputs.github-run-url }}") {
-          Write-Host "::error::github-run-url is required"
-          exit 1
-        }
-        
-        if (-not "${{ inputs.target-servers }}") {
-          Write-Host "::error::target-servers is required"
-          exit 1
-        }
-        
-        # Validate URL format if needed
-        if (-not (${{ inputs.github-run-url }} -match '^https?://')) {
-          Write-Host "::error::github-run-url must be a valid URL"
-          exit 1
-        }
+      }
 
-##############################
+      if (-not "${{ inputs.aws-region }}") {
+        Write-Error "Input 'aws-region' is required but not provided."
+        exit 1
+      }
 
-# New Relic Release Event Trigger
 
-Triggers a release event in New Relic to track database deployments.
+#############################
 
-## Inputs
+        - name: "Fetch the Instance ID and Node ID based on USE_CLUSTER_NAMES value"
+          id: fetch-instance-node
+          uses: xero-internal/dacpac-actions/paassql-pipelines/get-ec2instance-id@PIP-2135-Himanshu
+          with:
+            target-servers: ${{ env.TARGET_SERVERS }}
+            db-name: ${{ env.DB_NAME }}
+            role-list: ${{ env.USE_CLUSTER_NAMES == 'true' && '["primary","sync_secondary","principal_read_only"]' || 'primary' }}
+            db-server-host: ${{ env.GITHUB_ENVIRONMENT == 'production' && 'prd.aws.xero.com' || 'uat.aws.xero.com' }}
+            is-test-account: false
+            aws-region: ${{ env.AWS_REGION }}
 
-| Name | Description | Required | Validation |
-|------|-------------|----------|------------|
-| `release-artifact` | Name of the deployed database/artifact | Yes | Non-empty string |
-| `environment` | Target environment name | Yes | Non-empty string |
-| `new-relic-app-key` | New Relic account ID | Yes | Numeric value |
-| `new-relic-api-key` | New Relic Insights API key | Yes | Valid API key |
-| `deployer` | Who triggered the deployment | Yes | Non-empty string |
-| `owner` | Owner of the release event | Yes | Non-empty string |
-| `release-number` | Build release number | Yes | Non-empty string |
-| `github-run-url` | GitHub run URL | Yes | Valid URL format |
-| `target-servers` | Target server names | Yes | Non-empty string |
+###########################
 
-## Prerequisites
-
-1. **New Relic Account**: With Insights enabled
-2. **API Key**: With permissions to create custom events
-3. **Account ID**: Numeric New Relic account ID
-
-## Example Usage
-
-```yaml
-- name: Trigger New Relic Release
-  uses: your-repo/trigger-newrelic-release@v1
-  with:
-    release-artifact: 'PayrollDatabase'
-    environment: 'production'
-    new-relic-app-key: '1234567'
-    new-relic-api-key: ${{ secrets.NEW_RELIC_API_KEY }}
-    deployer: ${{ github.actor }}
-    owner: 'Database Team'
-    release-number: 'v2.1.5'
-    github-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-    target-servers: 'db-server-01,db-server-02'
-```
-
-## Supported Runners
-
-- **Windows**: Native PowerShell support
-- **Linux/macOS**: Requires PowerShell Core
-
-## Error Handling
-
-The action will fail if:
-- Any required input is missing
-- New Relic API key is invalid
-- Account ID is not numeric
-- API request fails (with detailed error message)
-- GitHub run URL is malformed
-
-## Output Format
-
-Creates a New Relic custom event with these fields:
-- Event Type: `ReleaseEvent`
-- Title: `Released [artifact] database to [environment]`
-- Markdown-formatted description
-- Environment name
-- Deployment engine (GitHub Action)
-- Product name
-- Owner and deployer information
+Run xero-internal/dacpac-actions/paassql-pipelines/get-ec2instance-id@PIP-2135-Himanshu
+Run echo "AWS_REGION is: us-west-2"
+  
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+AWS_REGION is: us-west-2
+Run if (-not "globaltaxmapper.db.livestage6.test.xero.com.") {
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+C:\actions-runner\_work\_temp\0ad2dba9-ae58-43c1-92d7-6e94b32f6680.ps1 : Input 'aws-region' is required but not 
+provided.
+At line:1 char:1
++ . 'C:\actions-runner\_work\_temp\0ad2dba9-ae58-43c1-92d7-6e94b32f6680 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,0ad2dba9-ae58-43c1-92d7-6e94b32f6680.p 
+   s1
+ 
+Error: Process completed with exit code 1.
