@@ -1,50 +1,259 @@
-paassql-pipelines/oidc-and-sqlpackage-installation/action.yaml: -
+paassql-pipelines/get-ec2instance-id/action.yaml: -
 
-name: 'Download Packages and dependencies'
-description: 'Download different utility files and dependencies which are required for the DACPAC deployment.'
+name: 'Get the Instance ID from Dynamite API'
+description: 'Using the /api/nodes Get Call, get the instance ID based on DB name, Role, AWS Region and Environment'
 inputs:
-  oidc-role:
-    description: 'OIDC Role to assume'
+  target-servers:
+    description: 'The host to deploy the DACPAC to'
     required: true
-  oidc-target-role:
-    description: 'OIDC Target Role to assume (Deployment Role)'
+  db-name:
+    description: 'The database name the DACPAC is being applied against'
     required: true
+  role-list:
+    description: 'List of roles associated with target servers'
+    required: true
+  db-server-host:
+    description: 'DB server hostname (depending upon the environment)'
+  is-test-account:
+    description: 'Boolean value for impersonating user via Windows Authentication'
+    required: true
+    default: false
   aws-region:
-    description: 'AWS region (default: us-east-1)'
-    default: 'us-west-2'
-
+    description: 'AWS region details'
+    required: true
+    
+outputs:
+  MATRIX_INSTANCE_LIST:
+    description: 'Final matrix'
+    value: ${{ steps.set-matrix.outputs.MATRIX_INSTANCE_LIST }}
 runs:
   using: "composite"
   steps:
-
-  - name: Assume OIDC role
-    id: assume_oidc_role
-    uses: xero-internal/github-actions/aws-assume-oidc@main
-    with:
-      oidc-role-to-assume: ${{ inputs.oidc-role }}
-      target-role-to-assume: ${{ inputs.oidc-target-role }}
-      aws-region: ${{ inputs.aws-region }}
-
-  - name: Install jq on Windows
+  - name: Get the Role List based on USE_CLUSTER_NAMES environment value.
+    id: get-role-list
+    if: ${{ inputs.is-test-account == 'false' }}
     shell: powershell
     run: |
-      Invoke-WebRequest -Uri "https://github.com/stedolan/jq/releases/latest/download/jq-win64.exe" -OutFile "$env:USERPROFILE\jq.exe"
-      echo "$env:USERPROFILE" | Out-File -Append -FilePath $env:GITHUB_PATH
-
-  - name: 📦 Download and install sqlpackage
+      try {
+        $roles = ConvertFrom-Json '${{ inputs.role-list }}'
+            if (-not ($roles -is [System.Array])) {
+                $roles = @($roles)
+            }
+        } catch {
+            $rawInput = '${{ inputs.role-list }}'
+            $cleanedInput = $rawInput.Trim('[', ']').Replace('"', '')
+            $roles = $cleanedInput -split ',' | ForEach-Object { $_.Trim() }
+        }
+        foreach ($role in $roles) {
+          Write-Host "Processing role: $role"
+        }
+        $roleListJson = ($roles | ConvertTo-Json -Compress)
+        "ROLE_LIST=$roleListJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+  - name: Get the Instance ID and Role map based on the DB Entries Name and Role via Dynamite API
+    id: instance-id
+    if: ${{ inputs.is-test-account == 'false' }}
     shell: powershell
+    env:
+      DB_NAME: ${{ inputs.db-name }}
+      TARGET_SERVERS: ${{ inputs.target-servers }}
     run: |
-      $zipUrl = "https://aka.ms/sqlpackage-windows"
-      $downloadPath = "${{ github.workspace }}\sqlpackage.zip" 
-      $extractPath = "${{ github.workspace }}\sqlpackage"
-      Write-Host "SQLPackage will be installed in: $extractPath"
-
-      Invoke-WebRequest -Uri $zipUrl -OutFile $downloadPath -UseBasicParsing
-
-      if (Test-Path $extractPath) {
-        Remove-Item -Path $extractPath -Recurse -Force
+      # Check if MATRIX_INSTANCE_LIST is not defined
+      if (-not $env:MATRIX_INSTANCE_LIST) {
+      # Define the API endpoint URL (replace with the actual API URL)
+      $apiUrl = "https://dynamite.paas.abc-support.com/api/nodes"
+      # Make the GET request without an Authorization token or headers
+      $response = Invoke-RestMethod -Uri $apiUrl -Method Get
+      $instanceList = @()
+      $roles = ConvertFrom-Json $env:ROLE_LIST
+      foreach ($role in $roles) {
+          # Write-Host "Processing role: $role"
+          $instanceId = $null
+          foreach ($instance in $response) {
+              foreach ($db in $instance.Databases) {
+                  if (
+                      $db.Name -eq $env:DB_NAME -and
+                      $db.Role -eq $role -and
+                      ($db.DnsEntries -contains $env:TARGET_SERVERS)
+                  ) {
+                      $instanceId = $instance.InstanceId
+                      # Write-Host "Instance ID found for role ${role}: ${instanceId}"
+                      break
+                  }
+              }
+              if ($instanceId) {
+                  $instanceList += $instanceId
+                  break }
+          }
+          if (-not $instanceId) {
+              Write-Host "No instance ID found for role $role"
+              exit 1
+          }
       }
-      Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
-      Remove-Item $downloadPath
+      # Convert hashtable to JSON
+      $instanceIdListJson = $instanceList | ConvertTo-Json -Compress
+      # Write-Host "Compact Instance list: $instanceIdListJson"
+      "instancelist=$instanceIdListJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      } else {
+        Write-Host "MATRIX_INSTANCE_LIST is already defined. Skipping matrix generation."
+        "MATRIX_INSTANCE_LIST=$env:MATRIX_INSTANCE_LIST" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      }
+  - name: Get the Database Server name from Node Id
+    id: node-id
+    if: ${{ inputs.is-test-account == 'false' }}
+    shell: powershell
+    env:
+      DB_NAME: ${{ inputs.db-name }}
+      TARGET_SERVERS: ${{ inputs.target-servers }}
+      DB_SERVER_HOST: ${{ inputs.db-server-host }}
+    run: |
+      # Check if MATRIX_INSTANCE_LIST is not defined
+      if (-not $env:MATRIX_INSTANCE_LIST) {
+      # Define the API endpoint URL (replace with the actual API URL)
+      $apiUrl = "https://dynamite.paas.abc-support.com/api/nodes"
+      # Make the GET request without an Authorization token or headers
+      $response = Invoke-RestMethod -Uri $apiUrl -Method Get
+      $dbServerNameList = @()
+      $roles = ConvertFrom-Json $env:ROLE_LIST
+        foreach ($role in $roles) {
+            # Write-Host "Processing role: $role"
+            $nodeId = $null
+            $dbServerName = $null
+            foreach ($instance in $response) {
+                foreach ($db in $instance.Databases) {
+                    if (
+                        $db.Name -eq $env:DB_NAME -and
+                        $db.Role -eq $role -and
+                        ($db.DnsEntries -contains $env:TARGET_SERVERS)
+                    ) {
+                        $nodeId = $instance.NodeId
+                        # Write-Host "Node ID found for role ${role}: ${nodeId}"
+                        $dbServerName = "$nodeId.${{ inputs.db-server-host }}"
+                        # Write-Host "DB Server name found for role ${role}: ${dbServerName}"
+                        break
+                    }
+                }
+                if ($nodeId) {
+                    $dbServerNameList += $dbServerName
+                    break }
+            }
+            if (-not $nodeId) {
+                Write-Host "No node ID found for role $role"
+                exit 1
+            }
+        }
+      # Convert hashtable to JSON
+      $dbServerNameListJson = $dbServerNameList | ConvertTo-Json -Compress
+      # Write-Host "Compact DB Server Name list: $dbServerNameListJson"
+      "DB_SERVER_NAME_LIST=$dbServerNameListJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+       } else {
+        Write-Host "MATRIX_INSTANCE_LIST is already defined. Skipping matrix generation."
+        "MATRIX_INSTANCE_LIST=$env:MATRIX_INSTANCE_LIST" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      }
+  - name: Generate Matrix
+    id: set-matrix
+    if: ${{ inputs.is-test-account == 'false' }}
+    shell: powershell
+    run: |
+      # Check if MATRIX_INSTANCE_LIST is not defined
+      if (-not $env:MATRIX_INSTANCE_LIST) {
+      $instanceList = ConvertFrom-Json $env:instancelist
+      $dbServerNameList = ConvertFrom-Json $env:DB_SERVER_NAME_LIST
+      $roleList = ConvertFrom-Json $env:ROLE_LIST
+      $instanceList = $instanceList -split ' '
+      $dbServerNameList = $dbServerNameList -split ' '
+      $roleList = $roleList -split ' '
+      # Write-Host "Raw instancelist: $instanceList"
+      # Write-Host "Raw dbServerNameList: $dbServerNameList"
+      # Write-Host "Raw roleList: $roleList"
+      $matrixArray = @()
+      for ($i = 0; $i -lt $instanceList.Count; $i++) {
+        $pair = @{
+          instance = $instanceList[$i]
+          dbServerName     = $dbServerNameList[$i]
+          role     = $roleList[$i]
+        }
+        $matrixArray += $pair
+      }
+      # Convert the array of objects to JSON
+      $matrixJson = $matrixArray | ConvertTo-Json -Compress -Depth 10
+      Write-Output "Matrix: $matrixJson"
+      "MATRIX_INSTANCE_LIST=$matrixJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      "MATRIX_INSTANCE_LIST=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      } else {
+        Write-Host "MATRIX_INSTANCE_LIST is already defined. Skipping matrix generation."
+        "MATRIX_INSTANCE_LIST=$env:MATRIX_INSTANCE_LIST" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      }
+  - name: Fetch the Instance ID from the AWS if the Dynamite API does not retrieve Target Server
+    id: fetch-instance-node-test-env
+    if: ${{ inputs.is-test-account == 'true' }}
+    shell: powershell
+    run: |
+        $server = "${{ inputs.target-servers }}".TrimEnd('.')
+        Write-Host "Looking up IP for server: $server"
+        $nslookupOutput = nslookup $server
+          $lines = $nslookupOutput | ForEach-Object { $_.Trim() }
 
-      echo "SQLPACKAGE_PATH=$extractPath" >> $env:GITHUB_ENV
+          # Initialize IP variable
+          $ipAddress = $null
+
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -like "Name:*" -and $lines[$i] -match $server) {
+                # Look forward for the next "Address:" line
+                for ($j = $i + 1; $j -lt $lines.Count; $j++) {
+                    if ($lines[$j] -like "Address:*") {
+                        $ipAddress = $lines[$j] -replace 'Address:\s+', ''
+                        # Write-Host "Found IP address for ${server}: ${ipAddress}"
+                        break
+                    }
+                }
+                break
+            }
+        }
+
+        # Write-Host "Found IP address: $ipAddress"
+
+        if (-not $ipAddress) {
+            Write-Host "No IP address found for $server"
+            exit 1
+        }
+
+        $instanceId = aws ec2 describe-instances `
+            --filters "Name=private-ip-address,Values=$ipAddress" `
+            --query "Reservations[*].Instances[*].InstanceId" `
+            --output text `
+            --region ${{ inputs.aws-region }}
+
+        if (-not $instanceId) {
+            Write-Host "No EC2 instance found with IP $ipAddress"
+            exit 1
+        }
+
+        Write-Host "Found Instance ID: $instanceId"
+
+            $matrixObject = [PSCustomObject]@{
+              instance = $instanceId
+              dbServerName = $ipAddress
+              role = "primary"
+            }
+            $matrixJson = $matrixObject | ConvertTo-Json -Compress -Depth 10
+
+          Write-Output "Matrix: $matrixJson"
+          "MATRIX_INSTANCE_LIST=$matrixJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MATRIX_INSTANCE_LIST=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+
+
+
+Style Guide / Coding conventions: -
+  . Action folder must be named using kebab-case;
+  . Action folder must include a README.md file;
+  . Readme must document the entire list of action inputs, including description, default values and whether the input is required or not;
+  . Readme must include example of usage;
+  . Readme must include supported runner operation system (OS);
+  . Readme must include necessary permissions for the action when applicable;
+  . Action must be included in the README.md file in the root folder with a link and a description;
+  . Action must be tested;
+  . Required input must have a validation/guards with a friendly message when value is not provided;
+  . Conditional required inputs must also have validation/guards;
+  . Action must not include a checkout step; the checkout should be handled by the consumer of the action;
+  . Input named working-directory must be used to specify the directory in which the action will run when applicable.
