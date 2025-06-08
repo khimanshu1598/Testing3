@@ -1,116 +1,96 @@
-# Invoke SQL Actions
-
-Executes `sql-actions.ps1` on remote EC2 instances via AWS SSM to perform SQL user management operations.
-
-## Inputs
-
-| Name | Description | Required | Default | Valid Values |
-|------|-------------|----------|---------|--------------|
-| `sql-password-parameter-store` | AWS SSM Parameter Store name containing SQL password | Yes | - | - |
-| `db-name` | Target database name | Yes | - | - |
-| `sql-user-name` | SQL user to create/manage | Yes | - | - |
-| `sql-activity` | Operation to perform | Yes | - | `create-user`, `validate-delete-user`, `delete-user` |
-| `destination-path` | Remote path to `sql-actions.ps1` | Yes | - | - |
-| `aws-region` | AWS region of target instances | Yes | - | - |
-| `username` | Domain user in `domain\user` format | Yes | - | - |
-| `needs-windows-authentication` | Use Windows Auth instead of SQL Auth | Yes | `true` | `true`, `false` |
-
-## Prerequisites
-
-1. **MATRIX_INSTANCE_LIST** environment variable must be set (from previous step)
-2. AWS credentials with permissions to:
-   - `ssm:GetParameter`
-   - `ssm:SendCommand`
-   - `ssm:ListCommandInvocations`
-3. Target EC2 instances must have SSM agent installed
-
-## Example Usage
-
-```yaml
-- uses: paassql-pipelines/invoke-sql-actions@v1
-  with:
-    sql-password-parameter-store: '/prod/db/password'
-    db-name: 'customer_db'
-    sql-user-name: 'github_actions_user'
-    sql-activity: 'create-user'
-    destination-path: 'C:\scripts'
-    aws-region: 'us-east-1'
-    username: 'DOMAIN\svc_github'
-    needs-windows-authentication: true
-  env:
-    MATRIX_INSTANCE_LIST: ${{ steps.previous-step.outputs.MATRIX_INSTANCE_LIST }}
-```
-
-## Supported Runners
-
-- **Linux**: Requires PowerShell Core and AWS CLI
-- **Windows**: Native PowerShell support
-
-## Error Handling
-
-The action will fail if:
-- Any required input is missing
-- SSM command execution fails
-- SQL script returns errors
-- Invalid activity type is specified
-- AWS permissions are insufficient
-
-
-==========
+name: 'Trigger New Relic - Release Event'
+description: 'Trigger the Release Event in New Relic Dashboard'
+inputs:
+  release-artifact:
+    description: 'The name for the database or artifact that has been deployed. Ex. PayrollSuperannuation'
+    required: true
+  environment:
+    description: 'The name of the environment to display in New Relic.'
+    required: true
+  new-relic-app-key:
+    description: 'The Account ID for the New Relic.'
+    required: true
+  new-relic-api-key:
+    description: 'The API key for New Relic Insights.'
+    required: true
+  deployer:
+    description: 'Returns the username of the person or app that triggered the workflow run.'
+    required: true
+  owner:
+    description: 'The owner of the NR Release Event. A mandatory field for the JSON Parameters.'
+    required: true
+  release-number:
+    description: 'Release Number of the build'
+    required: true
+  github-run-url:
+    description: 'Github Run link'
+    required: true
+  target-servers:
+    description: 'Target Servers'
+    required: true
 
 runs:
   using: composite
   steps:
-    - name: Validate inputs
-      shell: bash
-      run: |
-        # Required inputs validation
-        if [ -z "${{ inputs.sql-password-parameter-store }}" ]; then
-          echo "::error::sql-password-parameter-store is required"
-          exit 1
-        fi
-        
-        if [ -z "${{ inputs.db-name }}" ]; then
-          echo "::error::db-name is required"
-          exit 1
-        fi
-        
-        if [ -z "${{ inputs.sql-user-name }}" ]; then
-          echo "::error::sql-user-name is required"
-          exit 1
-        fi
-        
-        if [ -z "${{ inputs.sql-activity }}" ]; then
-          echo "::error::sql-activity is required"
-          exit 1
-        fi
-        
-        if [[ ! "${{ inputs.sql-activity }}" =~ ^(create-user|validate-delete-user|delete-user)$ ]]; then
-          echo "::error::Invalid sql-activity. Must be one of: create-user, validate-delete-user, delete-user"
-          exit 1
-        fi
-        
-        if [ -z "${{ inputs.destination-path }}" ]; then
-          echo "::error::destination-path is required"
-          exit 1
-        fi
-        
-        if [ -z "${{ inputs.aws-region }}" ]; then
-          echo "::error::aws-region is required"
-          exit 1
-        fi
-        
-        if [ -z "${{ inputs.username }}" ]; then
-          echo "::error::username is required"
-          exit 1
-        fi
-        
-        if [[ ! "${{ inputs.needs-windows-authentication }}" =~ ^(true|false)$ ]]; then
-          echo "::error::needs-windows-authentication must be either 'true' or 'false'"
-          exit 1
-        fi
-        
-        if [ -z "$MATRIX_INSTANCE_LIST" ]; then
-          echo "::error::MATRIX_INSTANCE_LIST environment variable is required"
-          exit 1
-        fi
+  - name: Trigger the New Relic Release Event
+    shell: powershell
+    run: |
+      # Assign GitHub Action inputs to PowerShell variables
+      $deployer = "${{ inputs.deployer }}"
+      $servers = "${{ inputs.target-servers }}"
+      $releaseNumber = "${{ inputs.release-number }}"
+      $githubRunUrl = "${{ inputs.github-run-url }}"
+      $artifact = "${{ inputs.release-artifact }}"
+      $environment = "${{ inputs.environment }}"
+      $owner = "${{ inputs.owner }}"
+      $apiKey = "${{ inputs.new-relic-api-key }}"
+      $accountId = "${{ inputs.new-relic-app-key }}"  # This must be a numeric New Relic account ID
+
+      # Construct the event text in Markdown
+      $eventStreamText = @"
+      **Deployer:** $deployer
+      **Server:** $servers
+      **Link:** [Release $releaseNumber]($githubRunUrl)
+      "@
+
+      # Construct the payload
+      $parameters = @{
+        "eventType"        = "ReleaseEvent"
+        "title"            = "Released $artifact database to $environment"
+        "text"             = $eventStreamText
+        "env.name"         = $environment
+        "deploymentengine" = "GitHub Action"
+        "product"          = $artifact
+        "owner"            = $owner
+        "deployer"         = $deployer
+      }
+
+      # Convert to JSON
+      $params_json = $parameters | ConvertTo-Json -Depth 3
+      # Write-Host "`nJSON Payload to be sent:"
+      # Write-Host $params_json
+
+      # New Relic event API endpoint
+      $newrelic_url = "https://insights-collector.newrelic.com/v1/accounts/$accountId/events"
+      Write-Host "`nSending request to New Relic URL: $newrelic_url"
+
+      # Send the request using Invoke-RestMethod
+      try {
+        $response = Invoke-RestMethod -Uri $newrelic_url `
+                                      -Headers @{ "X-Insert-Key" = $apiKey } `
+                                      -ContentType "application/json" `
+                                      -Method POST `
+                                      -Body $params_json
+
+        Write-Host "`nSuccessfully sent event to New Relic."
+        Write-Host "Response: $response"
+      } catch {
+        Write-Host "`nError occurred: $($_.Exception.Message)"
+        if ($_.Exception.Response) {
+          $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+          $body = $reader.ReadToEnd()
+          Write-Host "`nError Response from New Relic:"
+          Write-Host $body
+        }
+        throw
+      }
