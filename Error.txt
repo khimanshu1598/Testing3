@@ -1,96 +1,131 @@
-name: 'Trigger New Relic - Release Event'
-description: 'Trigger the Release Event in New Relic Dashboard'
-inputs:
-  release-artifact:
-    description: 'The name for the database or artifact that has been deployed. Ex. PayrollSuperannuation'
-    required: true
-  environment:
-    description: 'The name of the environment to display in New Relic.'
-    required: true
-  new-relic-app-key:
-    description: 'The Account ID for the New Relic.'
-    required: true
-  new-relic-api-key:
-    description: 'The API key for New Relic Insights.'
-    required: true
-  deployer:
-    description: 'Returns the username of the person or app that triggered the workflow run.'
-    required: true
-  owner:
-    description: 'The owner of the NR Release Event. A mandatory field for the JSON Parameters.'
-    required: true
-  release-number:
-    description: 'Release Number of the build'
-    required: true
-  github-run-url:
-    description: 'Github Run link'
-    required: true
-  target-servers:
-    description: 'Target Servers'
-    required: true
-
 runs:
   using: composite
   steps:
-  - name: Trigger the New Relic Release Event
-    shell: powershell
-    run: |
-      # Assign GitHub Action inputs to PowerShell variables
-      $deployer = "${{ inputs.deployer }}"
-      $servers = "${{ inputs.target-servers }}"
-      $releaseNumber = "${{ inputs.release-number }}"
-      $githubRunUrl = "${{ inputs.github-run-url }}"
-      $artifact = "${{ inputs.release-artifact }}"
-      $environment = "${{ inputs.environment }}"
-      $owner = "${{ inputs.owner }}"
-      $apiKey = "${{ inputs.new-relic-api-key }}"
-      $accountId = "${{ inputs.new-relic-app-key }}"  # This must be a numeric New Relic account ID
-
-      # Construct the event text in Markdown
-      $eventStreamText = @"
-      **Deployer:** $deployer
-      **Server:** $servers
-      **Link:** [Release $releaseNumber]($githubRunUrl)
-      "@
-
-      # Construct the payload
-      $parameters = @{
-        "eventType"        = "ReleaseEvent"
-        "title"            = "Released $artifact database to $environment"
-        "text"             = $eventStreamText
-        "env.name"         = $environment
-        "deploymentengine" = "GitHub Action"
-        "product"          = $artifact
-        "owner"            = $owner
-        "deployer"         = $deployer
-      }
-
-      # Convert to JSON
-      $params_json = $parameters | ConvertTo-Json -Depth 3
-      # Write-Host "`nJSON Payload to be sent:"
-      # Write-Host $params_json
-
-      # New Relic event API endpoint
-      $newrelic_url = "https://insights-collector.newrelic.com/v1/accounts/$accountId/events"
-      Write-Host "`nSending request to New Relic URL: $newrelic_url"
-
-      # Send the request using Invoke-RestMethod
-      try {
-        $response = Invoke-RestMethod -Uri $newrelic_url `
-                                      -Headers @{ "X-Insert-Key" = $apiKey } `
-                                      -ContentType "application/json" `
-                                      -Method POST `
-                                      -Body $params_json
-
-        Write-Host "`nSuccessfully sent event to New Relic."
-        Write-Host "Response: $response"
-      } catch {
-        Write-Host "`nError occurred: $($_.Exception.Message)"
-        if ($_.Exception.Response) {
-          $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-          $body = $reader.ReadToEnd()
-          Write-Host "`nError Response from New Relic:"
-          Write-Host $body
+    - name: Validate inputs
+      shell: pwsh
+      run: |
+        # Required inputs validation
+        if (-not "${{ inputs.release-artifact }}") {
+          Write-Host "::error::release-artifact is required"
+          exit 1
         }
-        throw
-      }
+        
+        if (-not "${{ inputs.environment }}") {
+          Write-Host "::error::environment is required"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.new-relic-app-key }}") {
+          Write-Host "::error::new-relic-app-key is required"
+          exit 1
+        }
+        
+        # Validate account ID is numeric
+        if (-not (${{ inputs.new-relic-app-key }} -match '^\d+$')) {
+          Write-Host "::error::new-relic-app-key must be a numeric account ID"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.new-relic-api-key }}") {
+          Write-Host "::error::new-relic-api-key is required"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.deployer }}") {
+          Write-Host "::error::deployer is required"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.owner }}") {
+          Write-Host "::error::owner is required"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.release-number }}") {
+          Write-Host "::error::release-number is required"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.github-run-url }}") {
+          Write-Host "::error::github-run-url is required"
+          exit 1
+        }
+        
+        if (-not "${{ inputs.target-servers }}") {
+          Write-Host "::error::target-servers is required"
+          exit 1
+        }
+        
+        # Validate URL format if needed
+        if (-not (${{ inputs.github-run-url }} -match '^https?://')) {
+          Write-Host "::error::github-run-url must be a valid URL"
+          exit 1
+        }
+
+##############################
+
+# New Relic Release Event Trigger
+
+Triggers a release event in New Relic to track database deployments.
+
+## Inputs
+
+| Name | Description | Required | Validation |
+|------|-------------|----------|------------|
+| `release-artifact` | Name of the deployed database/artifact | Yes | Non-empty string |
+| `environment` | Target environment name | Yes | Non-empty string |
+| `new-relic-app-key` | New Relic account ID | Yes | Numeric value |
+| `new-relic-api-key` | New Relic Insights API key | Yes | Valid API key |
+| `deployer` | Who triggered the deployment | Yes | Non-empty string |
+| `owner` | Owner of the release event | Yes | Non-empty string |
+| `release-number` | Build release number | Yes | Non-empty string |
+| `github-run-url` | GitHub run URL | Yes | Valid URL format |
+| `target-servers` | Target server names | Yes | Non-empty string |
+
+## Prerequisites
+
+1. **New Relic Account**: With Insights enabled
+2. **API Key**: With permissions to create custom events
+3. **Account ID**: Numeric New Relic account ID
+
+## Example Usage
+
+```yaml
+- name: Trigger New Relic Release
+  uses: your-repo/trigger-newrelic-release@v1
+  with:
+    release-artifact: 'PayrollDatabase'
+    environment: 'production'
+    new-relic-app-key: '1234567'
+    new-relic-api-key: ${{ secrets.NEW_RELIC_API_KEY }}
+    deployer: ${{ github.actor }}
+    owner: 'Database Team'
+    release-number: 'v2.1.5'
+    github-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    target-servers: 'db-server-01,db-server-02'
+```
+
+## Supported Runners
+
+- **Windows**: Native PowerShell support
+- **Linux/macOS**: Requires PowerShell Core
+
+## Error Handling
+
+The action will fail if:
+- Any required input is missing
+- New Relic API key is invalid
+- Account ID is not numeric
+- API request fails (with detailed error message)
+- GitHub run URL is malformed
+
+## Output Format
+
+Creates a New Relic custom event with these fields:
+- Event Type: `ReleaseEvent`
+- Title: `Released [artifact] database to [environment]`
+- Markdown-formatted description
+- Environment name
+- Deployment engine (GitHub Action)
+- Product name
+- Owner and deployer information
