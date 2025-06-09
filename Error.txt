@@ -1,65 +1,334 @@
-name: 'Get EC2 Instance ID from Dynamite API'
-description: 'Retrieves instance ID based on DB name, role, AWS region and environment'
+paassql-pipelines/validate-create-sql-user/action.yaml: -
+
+name: 'Create a new SQL user'
+description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+
 inputs:
-  target-servers:
-    description: 'The host to deploy the DACPAC to'
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
+    required: true
+  aws-region:
+    description: 'AWS region details'
+    required: true
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
     required: true
   db-name:
-    description: 'The database name the DACPAC is being applied against'
+    description: 'Name of the Database'
     required: true
-  role-list:
-    description: 'List of roles associated with target servers (JSON array or comma-separated)'
+  sql-user-name:
+    description: 'Name of the sql user to be created'
     required: true
-  db-server-host:
-    description: 'DB server hostname (depending upon the environment)'
-    required: false
-  is-test-account:
-    description: 'Boolean value for impersonating user via Windows Authentication'
+  username:
+    description: 'Username of impersonated user in domainName\username format'
     required: true
-    default: 'false'
+  needs-windows-authentication:
+    description: 'Boolean value to impersonate the user using Windows Authentication or SQL Server Authentication'
+    required: true
+    default: true
+
+runs:
+  using: composite
+  steps:
+  - name: Transfer GHA scripts to target server
+    id: transfer-script
+    uses: xero-internal/dacpac-actions/paassql-pipelines/transfer-script@PIP-2135-Himanshu
+    with:
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+
+  - name: Validate if the SQL User exists and delete the SQL User
+    id: validate-user
+    uses: xero-internal/dacpac-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'validate-delete-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
+      needs-windows-authentication: ${{ inputs.needs-windows-authentication }}
+
+  - name: Create a New SQL User and grant permissions to the new user
+    id: create-user
+    uses: xero-internal/dacpac-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'create-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
+      needs-windows-authentication: ${{ inputs.needs-windows-authentication }}
+
+#######################################
+paassql-pipelines/transfer-script/action.yaml: -
+
+name: 'Transfer script to target server'
+description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+
+inputs:
+  destination-path:
+    description: 'Folder path on the target server where the script will be placed'
+    required: true
   aws-region:
-    description: 'AWS region where the instances are located'
+    description: 'AWS region details'
     required: true
-    default: 'us-west-2'
+
+runs:
+  using: composite
+  steps:
+
+  - name: Transfer script to target EC2 server via SSM and wait for success
+    id: transfer-file-to-ec2
+    shell: bash
+    run: |
+      set -e
+
+      echo "Starting script transfer..."
+
+      SCRIPT_FILE="${{ github.action_path }}/sql-actions.ps1"
+      echo "Resolved local script path: $SCRIPT_FILE"
+
+      # Encode the file to base64
+      ENCODED=$(base64 -w 0 "$SCRIPT_FILE")
+
+      # Build the PowerShell command
+      PS_COMMAND="\$b64='$ENCODED'; \
+      if (!(Test-Path '${{ inputs.destination-path }}')) { New-Item -Path '${{ inputs.destination-path }}' -ItemType Directory | Out-Null }; \
+      \$scriptPath = Join-Path '${{ inputs.destination-path }}' 'sql-actions.ps1'; \
+      if (Test-Path \$scriptPath) { Remove-Item \$scriptPath -Force; Write-Output 'FILE_DELETED' }; \
+      \$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
+      Set-Content -Path \$scriptPath -Value \$decoded -Force; \
+      Write-Output 'FILE_UPLOADED'"
+
+      # Normalize matrix instance list
+      matrixJson="$MATRIX_INSTANCE_LIST"
+      if [[ "$matrixJson" != \[* ]]; then
+        echo "Wrapping single JSON object in an array..."
+        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
+      fi
+
+      echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
+
+      # Iterate over each instance
+      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
+        instance=$(echo "$item" | jq -r '.instance')
+        dbServer=$(echo "$item" | jq -r '.dbServerName')
+        role=$(echo "$item" | jq -r '.role')
+
+        echo "----------------------------------"
+        echo "Transferring script to - Instance: $instance, Role: $role, DB Server: $dbServer"
+
+        # Send the transfer command
+        command_id=$(aws ssm send-command \
+          --document-name "AWS-RunPowerShellScript" \
+          --instance-ids "$instance" \
+          --region "${{ inputs.aws-region }}" \
+          --comment "Uploading sql-actions.ps1 via GitHub Actions" \
+          --parameters "commands=[\"$PS_COMMAND\"]" \
+          --query "Command.CommandId" \
+          --output text)
+
+        echo "Command ID generated: $command_id"
+
+        # Wait for upload to complete
+        echo "Waiting for upload to complete..."
+        timeout_minutes=5
+        timeout_seconds=$((timeout_minutes * 60))
+        elapsed_seconds=0
+
+        while true; do
+          status=$(aws ssm list-command-invocations \
+            --command-id "$command_id" \
+            --instance-id "$instance" \
+            --region "${{ inputs.aws-region }}" \
+            --query "CommandInvocations[0].Status" \
+            --output text)
+
+          echo "Current SSM command status for $instance: $status"
+
+          if [[ "$status" == "Success" ]]; then
+            echo "Script upload completed successfully for instance: $instance"
+            break
+          elif [[ "$status" == "Failed" || "$status" == "Cancelled" || "$status" == "TimedOut" ]]; then
+            echo "Script upload failed for instance: $instance with status: $status"
+            exit 1
+          else
+            echo "Still waiting for script upload... ($elapsed_seconds seconds elapsed)"
+            sleep 5
+            elapsed_seconds=$((elapsed_seconds + 5))
+            if [[ "$elapsed_seconds" -ge "$timeout_seconds" ]]; then
+              echo "Timeout reached ($timeout_minutes minutes) while waiting for script upload on instance: $instance"
+              exit 1
+            fi
+          fi
+        done
+
+        echo "----------------------------------"
+      done
+
+      echo "All scripts uploaded successfully to all instances."
+
+#############################
+paassql-pipelines/sql-deploy-report-check/action.yaml: -
+
+name: 'SQL Deploy Report Check'
+description: 'Validate if the deploy report xml file is different from the baseline xml file and set the environment variable APPROVAL_REQUIRED to true or false based on change in xml'
+
+inputs:
+  deploy-report-file-path:
+    description: 'The path of Deploy Report xml file generated '
+    required: true
 
 outputs:
-  MATRIX_INSTANCE_LIST:
-    description: 'JSON matrix containing instance IDs, DB server names, and roles'
-    value: ${{ steps.set-matrix.outputs.MATRIX_INSTANCE_LIST }}
+  approval-required:
+    description: 'Boolean indicating if approval is required'
+    value: ${{ steps.sql-deploy-report-check.outputs.approval-required }}
 
 runs:
   using: "composite"
   steps:
-    - name: Debug Inputs
-      shell: bash
-      run: |
-        echo "Input parameters received:"
-        echo "target-servers: ${{ inputs.target-servers }}"
-        echo "db-name: ${{ inputs.db-name }}"
-        echo "role-list: ${{ inputs.role-list }}"
-        echo "db-server-host: ${{ inputs.db-server-host }}"
-        echo "is-test-account: ${{ inputs.is-test-account }}"
-        echo "aws-region: ${{ inputs.aws-region }}"
+  - name: Validate inputs
+    shell: powershell
+    run: |
+      if (-not "${{ inputs.deploy-report-file-path }}") {
+        Write-Error "Input 'deploy-report-file-path' is required but not provided."
+        exit 1
+      }
 
-    - name: Validate Inputs
-      shell: bash
-      run: |
-        if [ -z "${{ inputs.target-servers }}" ]; then
-          echo "::error::Input 'target-servers' is required but not provided."
-          exit 1
-        fi
+  - name: SQL Deploy Report Check
+    id: sql-deploy-report-check
+    shell: powershell
+    run: |
+      $scriptPath = "${{ github.action_path }}\sql-deploy-report-check.ps1"
+        $pathsArray = ${{ inputs.deploy-report-file-path }} -split ','
+    
+        $approvalRequired = $false
+        foreach ($path in $pathsArray) {
+          $output = & $scriptPath -DeployReportPath $path
+          Write-Host "DeployReportCheck Output: $output"
+          if ($output -notmatch "No change detected in database") {
+              $approvalRequired = $true
+          }
+        }
+        
+        # echo "Value of approvalRequired: $approvalRequired"
+        echo "APPROVAL_REQUIRED=$($approvalRequired.ToString().ToLower())" >> $env:GITHUB_ENV
+        echo "approval-required=$($approvalRequired.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
-        if [ -z "${{ inputs.db-name }}" ]; then
-          echo "::error::Input 'db-name' is required but not provided."
-          exit 1
-        fi
 
-        if [ -z "${{ inputs.role-list }}" ]; then
-          echo "::error::Input 'role-list' is required but not provided."
-          exit 1
-        fi
+##################################
+paassql-pipelines/sql-dacpac-deployer/action.yaml: -
 
-        if [ -z "${{ inputs.aws-region }}" ]; then
-          echo "::error::Input 'aws-region' is required but not provided."
-          exit 1
-        fi
+name: 'SQL dacpac action deployment using sqlpackage.exe'
+description: 'Using sqlpacakge.exe to perform SQL server DACPAC operations - Deployreport, script, extract & publish'
+
+inputs:
+  Action:
+    description: 'The action to have sqlpackage.exe execute. One of: extract, deployreport, script, publish'
+    required: true
+  DacpacPath:
+    description: '[Optional] The fully qualified path and file name of the DACPAC to publish.'
+    required: false
+  PublishProfilePath:
+    description: '[Optional] The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
+    required: false
+  DatabaseName:
+    description: 'The database name the DACPAC is being applied against'
+    required: true
+  UserName:
+    description: 'SQL username to be used for performing actions'
+    required: true
+  SqlPackagePath:
+    description: 'Path to sqlpackage.exe'
+    required: true
+  sql-password-parameter-store:
+    description: 'Name of SQL password parameter store to fetch from'
+    required: true
+  ArtifactDownloadPath:
+    description: 'Path where the Artifacts will be stored'
+    required: true
+  ReleaseNumber:
+    description: 'Release Number of the build'
+    required: true
+  FileName:
+    description: 'The name of Output File'
+    required: true
+  TargetServer:
+    description: 'The host to deploy the DACPAC to'
+    required: true
+  PublishProfileFilePath:
+    description: 'The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
+    required: true
+  UseMultiSubnetFailover:
+    description: 'Add multisubnetfailover=true; to the connection string'
+    required: true
+  SQLPackageDeployProperties:
+    description: 'Collection of SQLPackage.exe Properties in JSON format eg {"PropertyName":"PropertyValue","PropertyTwoName":"PropertyTwoValue"}'
+    required: true
+  SQLCMDVariables:
+    description: 'Collection of SQLCMD Variables in JSON format eg {"VariableName":"VariableValue","VariableTwoName":"VariableTwoValue"}'
+    required: true
+  SQLPackageParameters:
+    description: 'Collection of SQLPackage.exe Parameters in JSON format eg {"ParameterName":"ParameterValue","ParameterTwoName":"ParameterTwoValue"}'
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Initialize OutPutPathFile
+    run: |
+      if (-not (Test-Path "$env:GITHUB_WORKSPACE\OutPutPath.txt")) {
+        New-Item "$env:GITHUB_WORKSPACE\OutPutPath.txt" -ItemType File -Force
+      }
+    shell: powershell
+
+  - name: Retrieve password & build script path
+    shell: powershell
+    run: |
+      # Retrieve password securely
+      $retrievedPassword = & aws ssm get-parameter --name ${{ inputs.sql-password-parameter-store }} --with-decryption --query "Parameter.Value" --output text
+
+      # Mask the password in logs
+      echo "::add-mask::$retrievedPassword"
+
+      # Exporting to use in next step
+      Write-Output "::add-mask::$retrievedPassword"
+      "retrievedPassword=$retrievedPassword" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      $scriptPath = Resolve-Path (Join-Path "${{ github.action_path }}" "sqlpackage-runner-fixed.ps1")
+
+      # Exporting to use in next step
+      "scriptPath=$scriptPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      "outputPath=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Debug Output
+      Write-Host "Resolved script path: $scriptPath"
+      if (Test-Path $scriptPath) {
+        Write-Host "Script exists at resolved path."
+      } else {
+        Write-Host "Script does NOT exist at resolved path!"
+      }
+
+  - name: Build Output path and Run the DACPAC Deployment script
+    id: run-dacpac-deployment
+    uses: xero-internal/dacpac-actions/paassql-pipelines/run-dacpac-deployment@PIP-2135-Himanshu
+    with:
+      ArtifactDownloadPath: '${{ inputs.ArtifactDownloadPath }}'
+      DatabaseName: '${{ inputs.DatabaseName }}'
+      ReleaseNumber: '${{ inputs.ReleaseNumber }}'
+      FileName: '${{ inputs.FileName }}'
+      targetServer: '${{ inputs.TargetServer }}'
+      Action: '${{ inputs.Action }}'
+      PublishProfileFilePath: '${{ inputs.PublishProfileFilePath }}'
+      GithubActor: '${{ github.actor }}'
+      SQLPackageDeployProperties: '${{ inputs.SQLPackageDeployProperties }}'
+      SQLCMDVariables: '${{ inputs.SQLCMDVariables }}'
+      SQLPackageParameters: '${{ inputs.SQLPackageParameters }}'
+      SqlPackagePath: '${{ inputs.SqlPackagePath }}'
+      DacpacPath: '${{ inputs.DacpacPath }}'
+      UserName: '${{ inputs.UserName }}'
+      UseMultiSubnetFailover: '${{ inputs.UseMultiSubnetFailover }}'
