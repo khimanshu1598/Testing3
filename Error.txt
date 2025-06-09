@@ -1,6 +1,27 @@
-Error: xero-internal\dacpac-actions\PIP-2135-Himanshu\paassql-pipelines/sql-dacpac-deployer\action.yaml (Line: 62, Col: 10): Unexpected symbol: '$inputName'. Located at position 8 within expression: inputs.$inputName
-Error: GitHub.DistributedTask.ObjectTemplating.TemplateValidationException: The template is not valid. xero-internal\dacpac-actions\PIP-2135-Himanshu\paassql-pipelines/sql-dacpac-deployer\action.yaml (Line: 62, Col: 10): Unexpected symbol: '$inputName'. Located at position 8 within expression: inputs.$inputName
-   at GitHub.DistributedTask.ObjectTemplating.TemplateValidationErrors.Check()
-   at GitHub.Runner.Worker.ActionManifestManager.ConvertRuns(IExecutionContext executionContext, TemplateContext templateContext, TemplateToken inputsToken, String fileRelativePath, MappingToken outputs)
-   at GitHub.Runner.Worker.ActionManifestManager.Load(IExecutionContext executionContext, String manifestFile)
-Error: Failed to load xero-internal\dacpac-actions\PIP-2135-Himanshu\paassql-pipelines/sql-dacpac-deployer\action.yaml
+Finished
+At C:\actions-runner\_work\_temp\88f47b12-bda4-4a50-981e-b25851b78327.ps1:15 char:49
++ ... '; Value="{"AdditionalDeploymentContributors":"XeroDeploymentContribu ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Unexpected token 'AdditionalDeploymentContributors":"XeroDeploymentContributors.CreateIndexOperationalPropsModifier","A
+dditionalDeploymentContributorArguments":{"CreateIndexOperationalPropsModifier.Online":"ON","CreateIndexOperationalProp
+sModifier.MAXDOP":2,"CreateIndexOperationalPropsModifier.SortInTempDB":"ON"}}"' in expression or statement.
+At C:\actions-runner\_work\_temp\88f47b12-bda4-4a50-981e-b25851b78327.ps1:15 char:49
++   @{Name='SQLPackageDeployProperties'; Value="{"AdditionalDeploymentC ...
++                                                 ~
+The hash literal was incomplete.
+At C:\actions-runner\_work\_temp\88f47b12-bda4-4a50-981e-b25851b78327.ps1:15 char:347
++ ... AXDOP":2,"CreateIndexOperationalPropsModifier.SortInTempDB":"ON"}}"},
++                                                                        ~
+Missing closing ')' in subexpression.
+At C:\actions-runner\_work\_temp\88f47b12-bda4-4a50-981e-b25851b78327.ps1:15 char:347
++ ... AXDOP":2,"CreateIndexOperationalPropsModifier.SortInTempDB":"ON"}}"},
++                                                                        ~
+Unexpected token '}' in expression or statement.
+At C:\actions-runner\_work\_temp\88f47b12-bda4-4a50-981e-b25851b78327.ps1:18 char:1
++ )
++ ~
+Unexpected token ')' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParseException
+    + FullyQualifiedErrorId : UnexpectedToken
+ 
+Error: Process completed with exit code 1.
