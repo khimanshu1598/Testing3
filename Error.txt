@@ -1,119 +1,62 @@
-name: 'SQL dacpac action deployment using sqlpackage.exe'
-description: 'Using sqlpacakge.exe to perform SQL server DACPAC operations - Deployreport, script, extract & publish'
-
-inputs:
-  Action:
-    description: 'The action to have sqlpackage.exe execute. One of: extract, deployreport, script, publish'
-    required: true
-  DacpacPath:
-    description: '[Optional] The fully qualified path and file name of the DACPAC to publish.'
-    required: false
-  PublishProfilePath:
-    description: '[Optional] The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: false
-  DatabaseName:
-    description: 'The database name the DACPAC is being applied against'
-    required: true
-  UserName:
-    description: 'SQL username to be used for performing actions'
-    required: true
-  SqlPackagePath:
-    description: 'Path to sqlpackage.exe'
-    required: true
-  sql-password-parameter-store:
-    description: 'Name of SQL password parameter store to fetch from'
-    required: true
-  ArtifactDownloadPath:
-    description: 'Path where the Artifacts will be stored'
-    required: true
-  ReleaseNumber:
-    description: 'Release Number of the build'
-    required: true
-  FileName:
-    description: 'The name of Output File'
-    required: true
-  TargetServer:
-    description: 'The host to deploy the DACPAC to'
-    required: true
-  PublishProfileFilePath:
-    description: 'The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: true
-  UseMultiSubnetFailover:
-    description: 'Add multisubnetfailover=true; to the connection string'
-    required: true
-  SQLPackageDeployProperties:
-    description: 'Collection of SQLPackage.exe Properties in JSON format eg {"PropertyName":"PropertyValue","PropertyTwoName":"PropertyTwoValue"}'
-    required: true
-  SQLCMDVariables:
-    description: 'Collection of SQLCMD Variables in JSON format eg {"VariableName":"VariableValue","VariableTwoName":"VariableTwoValue"}'
-    required: true
-  SQLPackageParameters:
-    description: 'Collection of SQLPackage.exe Parameters in JSON format eg {"ParameterName":"ParameterValue","ParameterTwoName":"ParameterTwoValue"}'
-    required: true
-  aws-region:
-    description: 'AWS region details'
-    required: true
-
 runs:
   using: composite
   steps:
-  - name: Validate inputs
-    shell: powershell
-    run: |
-      # Validate required inputs
-      $requiredInputs = @(
-        @{Name='Action'; Value="${{ inputs.Action }}"; ValidValues=@('extract','deployreport','script','publish')},
-        @{Name='DatabaseName'; Value="${{ inputs.DatabaseName }}"},
-        @{Name='UserName'; Value="${{ inputs.UserName }}"},
-        @{Name='SqlPackagePath'; Value="${{ inputs.SqlPackagePath }}"},
-        @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
-        @{Name='ArtifactDownloadPath'; Value="${{ inputs.ArtifactDownloadPath }}"},
-        @{Name='ReleaseNumber'; Value="${{ inputs.ReleaseNumber }}"},
-        @{Name='FileName'; Value="${{ inputs.FileName }}"},
-        @{Name='TargetServer'; Value="${{ inputs.TargetServer }}"},
-        @{Name='PublishProfileFilePath'; Value="${{ inputs.PublishProfileFilePath }}"},
-        @{Name='UseMultiSubnetFailover'; Value="${{ inputs.UseMultiSubnetFailover }}"; ValidValues=@('true','false')},
-        @{Name='SQLPackageDeployProperties'; Value="${{ inputs.SQLPackageDeployProperties }}"},
-        @{Name='SQLCMDVariables'; Value="${{ inputs.SQLCMDVariables }}"},
-        @{Name='SQLPackageParameters'; Value="${{ inputs.SQLPackageParameters }}"}
-      )
+    - name: Validate inputs
+      shell: powershell
+      run: |
+        # Validate required inputs
+        $requiredInputs = @(
+          @{Name='Action'; Value="${{ inputs.Action }}"; ValidValues=@('extract','deployreport','script','publish')},
+          @{Name='DatabaseName'; Value="${{ inputs.DatabaseName }}"},
+          @{Name='UserName'; Value="${{ inputs.UserName }}"},
+          @{Name='SqlPackagePath'; Value="${{ inputs.SqlPackagePath }}"},
+          @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
+          @{Name='ArtifactDownloadPath'; Value="${{ inputs.ArtifactDownloadPath }}"},
+          @{Name='ReleaseNumber'; Value="${{ inputs.ReleaseNumber }}"},
+          @{Name='FileName'; Value="${{ inputs.FileName }}"},
+          @{Name='TargetServer'; Value="${{ inputs.TargetServer }}"},
+          @{Name='PublishProfileFilePath'; Value="${{ inputs.PublishProfileFilePath }}"},
+          @{Name='UseMultiSubnetFailover'; Value="${{ inputs.UseMultiSubnetFailover }}"; ValidValues=@('true','false')}
+        )
 
-      foreach ($input in $requiredInputs) {
-        if ([string]::IsNullOrWhiteSpace($input.Value)) {
-          Write-Host "::error::$($input.Name) is required"
+        foreach ($input in $requiredInputs) {
+          if ([string]::IsNullOrWhiteSpace($input.Value)) {
+            Write-Host "::error::$($input.Name) is required"
+            exit 1
+          }
+          
+          if ($input.ValidValues -and $input.ValidValues -notcontains $input.Value) {
+            Write-Host "::error::$($input.Name) must be one of: $($input.ValidValues -join ', ')"
+            exit 1
+          }
+        }
+
+        # Validate JSON inputs individually
+        $jsonInputs = @{
+          SQLPackageDeployProperties = "${{ inputs.SQLPackageDeployProperties }}"
+          SQLCMDVariables = "${{ inputs.SQLCMDVariables }}"
+          SQLPackageParameters = "${{ inputs.SQLPackageParameters }}"
+        }
+
+        foreach ($key in $jsonInputs.Keys) {
+          try {
+            if (-not [string]::IsNullOrWhiteSpace($jsonInputs[$key])) {
+              $jsonInputs[$key] | ConvertFrom-Json -ErrorAction Stop | Out-Null
+            }
+          } catch {
+            Write-Host "::error::Invalid JSON format in $key"
+            exit 1
+          }
+        }
+
+        # Action-specific validation
+        if ("${{ inputs.Action }}" -eq 'publish' -and [string]::IsNullOrWhiteSpace("${{ inputs.DacpacPath }}")) {
+          Write-Host "::error::DacpacPath is required for publish action"
           exit 1
         }
 
-        if ($input.ValidValues -and $input.ValidValues -notcontains $input.Value) {
-          Write-Host "::error::$($input.Name) must be one of: $($input.ValidValues -join ', ')"
+        # Validate SQLPackage.exe exists
+        if (-not (Test-Path "${{ inputs.SqlPackagePath }}")) {
+          Write-Host "::error::sqlpackage.exe not found at specified path: ${{ inputs.SqlPackagePath }}"
           exit 1
         }
-      }
-
-      # Validate JSON inputs
-      $jsonInputs = @(
-        @{ Name = 'SQLPackageDeployProperties'; Value = $env:SQLPackageDeployProperties },
-        @{ Name = 'SQLCMDVariables'; Value = $env:SQLCMDVariables },
-        @{ Name = 'SQLPackageParameters'; Value = $env:SQLPackageParameters }
-      )
-
-      foreach ($input in $jsonInputs) {
-        try {
-          $null = $input.Value | ConvertFrom-Json -ErrorAction Stop
-        } catch {
-          Write-Host "::error::Invalid JSON format in $($input.Name)"
-          exit 1
-        }
-      }
-
-      # Action-specific validation
-      if ($env:Action -eq 'publish' -and [string]::IsNullOrWhiteSpace($env:DacpacPath)) {
-        Write-Host "::error::DacpacPath is required for publish action"
-        exit 1
-      }
-
-      # Validate sqlpackage.exe path
-      if (-not (Test-Path $env:SqlPackagePath)) {
-        Write-Host "::error::sqlpackage.exe not found at specified path: $($env:SqlPackagePath)"
-        exit 1
-      }
