@@ -1,78 +1,46 @@
-name: 'SQL dacpac action deployment using sqlpackage.exe'
-description: 'Using sqlpacakge.exe to perform SQL server DACPAC operations - Deployreport, script, extract & publish'
+paassql-pipelines/validate-create-sql-user/action.yaml: -
+
+name: 'Create a new SQL user'
+description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
 
 inputs:
-  Action:
-    description: 'The action to have sqlpackage.exe execute. One of: extract, deployreport, script, publish'
-    required: true
-  DacpacPath:
-    description: '[Optional] The fully qualified path and file name of the DACPAC to publish.'
-    required: false
-  PublishProfilePath:
-    description: '[Optional] The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: false
-  DatabaseName:
-    description: 'The database name the DACPAC is being applied against'
-    required: true
-  UserName:
-    description: 'SQL username to be used for performing actions'
-    required: true
-  SqlPackagePath:
-    description: 'Path to sqlpackage.exe'
-    required: true
-  sql-password-parameter-store:
-    description: 'Name of SQL password parameter store to fetch from'
-    required: true
-  ArtifactDownloadPath:
-    description: 'Path where the Artifacts will be stored'
-    required: true
-  ReleaseNumber:
-    description: 'Release Number of the build'
-    required: true
-  FileName:
-    description: 'The name of Output File'
-    required: true
-  TargetServer:
-    description: 'The host to deploy the DACPAC to'
-    required: true
-  PublishProfileFilePath:
-    description: 'The fully qualified path and file name of the Publish Profile to be applied against the supplied DACPAC'
-    required: true
-  UseMultiSubnetFailover:
-    description: 'Add multisubnetfailover=true; to the connection string'
-    required: true
-  SQLPackageDeployProperties:
-    description: 'Collection of SQLPackage.exe Properties in JSON format eg {"PropertyName":"PropertyValue","PropertyTwoName":"PropertyTwoValue"}'
-    required: true
-  SQLCMDVariables:
-    description: 'Collection of SQLCMD Variables in JSON format eg {"VariableName":"VariableValue","VariableTwoName":"VariableTwoValue"}'
-    required: true
-  SQLPackageParameters:
-    description: 'Collection of SQLPackage.exe Parameters in JSON format eg {"ParameterName":"ParameterValue","ParameterTwoName":"ParameterTwoValue"}'
+  destination-path:
+    description: 'Path on the target server where script needs to be added'
     required: true
   aws-region:
     description: 'AWS region details'
     required: true
+  sql-password-parameter-store:
+    description: 'Name of the system manager parameter store which contains password for sql user'
+    required: true
+  db-name:
+    description: 'Name of the Database'
+    required: true
+  sql-user-name:
+    description: 'Name of the sql user to be created'
+    required: true
+  username:
+    description: 'Username of impersonated user in domainName\username format'
+    required: true
+  needs-windows-authentication:
+    description: 'Boolean value to impersonate the user using Windows Authentication or SQL Server Authentication'
+    required: true
+    default: true
 
 runs:
   using: composite
   steps:
   - name: Validate inputs
-    shell: powershell
+    shell: pwsh
     run: |
-      # Validate required inputs
+      # Required field validation
       $requiredInputs = @(
-        @{Name='Action'; Value="${{ inputs.Action }}"; ValidValues=@('extract','deployreport','script','publish')},
-        @{Name='DatabaseName'; Value="${{ inputs.DatabaseName }}"},
-        @{Name='UserName'; Value="${{ inputs.UserName }}"},
-        @{Name='SqlPackagePath'; Value="${{ inputs.SqlPackagePath }}"},
+        @{Name='destination-path'; Value="${{ inputs.destination-path }}"},
+        @{Name='aws-region'; Value="${{ inputs.aws-region }}"},
         @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
-        @{Name='ArtifactDownloadPath'; Value="${{ inputs.ArtifactDownloadPath }}"},
-        @{Name='ReleaseNumber'; Value="${{ inputs.ReleaseNumber }}"},
-        @{Name='FileName'; Value="${{ inputs.FileName }}"},
-        @{Name='TargetServer'; Value="${{ inputs.TargetServer }}"},
-        @{Name='PublishProfileFilePath'; Value="${{ inputs.PublishProfileFilePath }}"},
-        @{Name='UseMultiSubnetFailover'; Value="${{ inputs.UseMultiSubnetFailover }}"; ValidValues=@('true','false')}
+        @{Name='db-name'; Value="${{ inputs.db-name }}"},
+        @{Name='sql-user-name'; Value="${{ inputs.sql-user-name }}"},
+        @{Name='username'; Value="${{ inputs.username }}"}
       )
 
       foreach ($input in $requiredInputs) {
@@ -80,21 +48,52 @@ runs:
           Write-Host "::error::$($input.Name) is required"
           exit 1
         }
-        
-        if ($input.ValidValues -and $input.ValidValues -notcontains $input.Value) {
-          Write-Host "::error::$($input.Name) must be one of: $($input.ValidValues -join ', ')"
-          exit 1
-        }
       }
 
-      # Action-specific validation
-      if ("${{ inputs.Action }}" -eq 'publish' -and [string]::IsNullOrWhiteSpace("${{ inputs.DacpacPath }}")) {
-        Write-Host "::error::DacpacPath is required for publish action"
-        exit 1
-      }
+  - name: Transfer GHA scripts to target server
+    id: transfer-script
+    uses: xero-internal/dacpac-actions/paassql-pipelines/transfer-script@PIP-2135-Himanshu
+    with:
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
 
-      # Validate SQLPackage.exe exists
-      if (-not (Test-Path "${{ inputs.SqlPackagePath }}")) {
-        Write-Host "::error::sqlpackage.exe not found at specified path: ${{ inputs.SqlPackagePath }}"
-        exit 1
-      }
+  - name: Validate if the SQL User exists and delete the SQL User
+    id: validate-user
+    uses: xero-internal/dacpac-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'validate-delete-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
+      needs-windows-authentication: ${{ inputs.needs-windows-authentication }}
+
+  - name: Create a New SQL User and grant permissions to the new user
+    id: create-user
+    uses: xero-internal/dacpac-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
+    with:
+      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+      db-name: ${{ inputs.db-name }}
+      sql-user-name: ${{ inputs.sql-user-name }}
+      sql-activity: 'create-user'
+      destination-path: ${{ inputs.destination-path }}
+      aws-region: ${{ inputs.aws-region }}
+      username: ${{ inputs.username }}
+      needs-windows-authentication: ${{ inputs.needs-windows-authentication }}
+
+#########################################
+.github/workflows/payroll-au-superannuation.yml: -
+
+    - name: Create a new SQL User
+      id: create-user
+      uses: ./.github/actions/validate-create-sql-user
+      with:
+        file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
+        destination-path: 'C:\\Temp\\Superannuation'
+        aws-region: ${{ env.AWS_REGION }}
+        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
+        db-name: ${{ env.DB_NAME }}
+        sql-user-name: ${{ env.SQL_USER_NAME }}
+        username: ${{ env.IMPERSONATED_USERNAME }}
