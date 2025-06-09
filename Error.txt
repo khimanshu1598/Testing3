@@ -1,16 +1,47 @@
-At C:\actions-runner\_work\_temp\3b65ceca-84c3-4b24-b2d6-594379793467.ps1:31 char:35
-+ ... erties = "{"AdditionalDeploymentContributors":"XeroDeploymentContribu ...
-+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Unexpected token 'AdditionalDeploymentContributors":"XeroDeploymentContributors.CreateIndexOperationalPropsModifier","A
-dditionalDeploymentContributorArguments":{"CreateIndexOperationalPropsModifier.Online":"ON","CreateIndexOperationalProp
-sModifier.MAXDOP":2,"CreateIndexOperationalPropsModifier.SortInTempDB":"ON"}}"' in expression or statement.
-At C:\actions-runner\_work\_temp\3b65ceca-84c3-4b24-b2d6-594379793467.ps1:31 char:35
-+   SQLPackageDeployProperties = "{"AdditionalDeploymentContributors":" ...
-+                                   ~
-The hash literal was incomplete.
-At C:\actions-runner\_work\_temp\3b65ceca-84c3-4b24-b2d6-594379793467.ps1:34 char:1
-+ }
-+ ~
-Unexpected token '}' in expression or statement.
-    + CategoryInfo          : ParserError: (:) [], ParseException
-    + FullyQualifiedErrorId : UnexpectedToken
+runs:
+  using: composite
+  steps:
+    - name: Validate required inputs
+      shell: powershell
+      env:
+        Action: ${{ inputs.Action }}
+        DatabaseName: ${{ inputs.DatabaseName }}
+        UserName: ${{ inputs.UserName }}
+        SqlPackagePath: ${{ inputs.SqlPackagePath }}
+        sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
+        ArtifactDownloadPath: ${{ inputs.ArtifactDownloadPath }}
+        ReleaseNumber: ${{ inputs.ReleaseNumber }}
+        FileName: ${{ inputs.FileName }}
+        TargetServer: ${{ inputs.TargetServer }}
+        PublishProfileFilePath: ${{ inputs.PublishProfileFilePath }}
+        UseMultiSubnetFailover: ${{ inputs.UseMultiSubnetFailover }}
+        SQLPackageDeployProperties: ${{ inputs.SQLPackageDeployProperties }}
+        SQLCMDVariables: ${{ inputs.SQLCMDVariables }}
+        SQLPackageParameters: ${{ inputs.SQLPackageParameters }}
+        aws-region: ${{ inputs.aws-region }}
+      run: |
+        $requiredInputs = @(
+          'Action',
+          'DatabaseName',
+          'UserName',
+          'SqlPackagePath',
+          'sql-password-parameter-store',
+          'ArtifactDownloadPath',
+          'ReleaseNumber',
+          'FileName',
+          'TargetServer',
+          'PublishProfileFilePath',
+          'UseMultiSubnetFailover',
+          'SQLPackageDeployProperties',
+          'SQLCMDVariables',
+          'SQLPackageParameters',
+          'aws-region'
+        )
+
+        foreach ($name in $requiredInputs) {
+          $value = $env:$name
+          if ([string]::IsNullOrWhiteSpace($value)) {
+            Write-Host "::error::$name input is required but was not provided or is empty."
+            exit 1
+          }
+        }
