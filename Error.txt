@@ -1,62 +1,16 @@
-runs:
-  using: composite
-  steps:
-    - name: Validate inputs
-      shell: powershell
-      run: |
-        # Validate required inputs
-        $requiredInputs = @(
-          @{Name='Action'; Value="${{ inputs.Action }}"; ValidValues=@('extract','deployreport','script','publish')},
-          @{Name='DatabaseName'; Value="${{ inputs.DatabaseName }}"},
-          @{Name='UserName'; Value="${{ inputs.UserName }}"},
-          @{Name='SqlPackagePath'; Value="${{ inputs.SqlPackagePath }}"},
-          @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
-          @{Name='ArtifactDownloadPath'; Value="${{ inputs.ArtifactDownloadPath }}"},
-          @{Name='ReleaseNumber'; Value="${{ inputs.ReleaseNumber }}"},
-          @{Name='FileName'; Value="${{ inputs.FileName }}"},
-          @{Name='TargetServer'; Value="${{ inputs.TargetServer }}"},
-          @{Name='PublishProfileFilePath'; Value="${{ inputs.PublishProfileFilePath }}"},
-          @{Name='UseMultiSubnetFailover'; Value="${{ inputs.UseMultiSubnetFailover }}"; ValidValues=@('true','false')}
-        )
-
-        foreach ($input in $requiredInputs) {
-          if ([string]::IsNullOrWhiteSpace($input.Value)) {
-            Write-Host "::error::$($input.Name) is required"
-            exit 1
-          }
-          
-          if ($input.ValidValues -and $input.ValidValues -notcontains $input.Value) {
-            Write-Host "::error::$($input.Name) must be one of: $($input.ValidValues -join ', ')"
-            exit 1
-          }
-        }
-
-        # Validate JSON inputs individually
-        $jsonInputs = @{
-          SQLPackageDeployProperties = "${{ inputs.SQLPackageDeployProperties }}"
-          SQLCMDVariables = "${{ inputs.SQLCMDVariables }}"
-          SQLPackageParameters = "${{ inputs.SQLPackageParameters }}"
-        }
-
-        foreach ($key in $jsonInputs.Keys) {
-          try {
-            if (-not [string]::IsNullOrWhiteSpace($jsonInputs[$key])) {
-              $jsonInputs[$key] | ConvertFrom-Json -ErrorAction Stop | Out-Null
-            }
-          } catch {
-            Write-Host "::error::Invalid JSON format in $key"
-            exit 1
-          }
-        }
-
-        # Action-specific validation
-        if ("${{ inputs.Action }}" -eq 'publish' -and [string]::IsNullOrWhiteSpace("${{ inputs.DacpacPath }}")) {
-          Write-Host "::error::DacpacPath is required for publish action"
-          exit 1
-        }
-
-        # Validate SQLPackage.exe exists
-        if (-not (Test-Path "${{ inputs.SqlPackagePath }}")) {
-          Write-Host "::error::sqlpackage.exe not found at specified path: ${{ inputs.SqlPackagePath }}"
-          exit 1
-        }
+At C:\actions-runner\_work\_temp\3b65ceca-84c3-4b24-b2d6-594379793467.ps1:31 char:35
++ ... erties = "{"AdditionalDeploymentContributors":"XeroDeploymentContribu ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Unexpected token 'AdditionalDeploymentContributors":"XeroDeploymentContributors.CreateIndexOperationalPropsModifier","A
+dditionalDeploymentContributorArguments":{"CreateIndexOperationalPropsModifier.Online":"ON","CreateIndexOperationalProp
+sModifier.MAXDOP":2,"CreateIndexOperationalPropsModifier.SortInTempDB":"ON"}}"' in expression or statement.
+At C:\actions-runner\_work\_temp\3b65ceca-84c3-4b24-b2d6-594379793467.ps1:31 char:35
++   SQLPackageDeployProperties = "{"AdditionalDeploymentContributors":" ...
++                                   ~
+The hash literal was incomplete.
+At C:\actions-runner\_work\_temp\3b65ceca-84c3-4b24-b2d6-594379793467.ps1:34 char:1
++ }
++ ~
+Unexpected token '}' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParseException
+    + FullyQualifiedErrorId : UnexpectedToken
