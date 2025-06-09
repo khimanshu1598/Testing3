@@ -1,114 +1,93 @@
-# SQL User Management Action
+# Script Transfer Action
 
-Validates, deletes (if exists), and creates a new SQL user with permissions on target servers via AWS SSM.
+Transfers PowerShell scripts to target EC2 instances using AWS Systems Manager (SSM).
 
 ## Inputs
 
-| Name | Description | Required | Default | Validation |
-|------|-------------|----------|---------|------------|
-| `destination-path` | Remote path for script execution | Yes | - | Valid Windows path |
-| `aws-region` | AWS region of target instances | Yes | - | Valid AWS region |
-| `sql-password-parameter-store` | SSM parameter store path for SQL password | Yes | - | Valid parameter path |
-| `db-name` | Target database name | Yes | - | Non-empty string |
-| `sql-user-name` | SQL username to manage | Yes | - | Valid SQL identifier |
-| `username` | Domain user (domain\user format) | Yes | - | Valid domain format |
-| `needs-windows-authentication` | Authentication method | Yes | `true` | `true`/`false` |
+| Name | Description | Required | Validation |
+|------|-------------|----------|------------|
+| `destination-path` | Target directory path on remote server | Yes | Valid Windows path |
+| `aws-region` | AWS region of target instances | Yes | Valid AWS region name |
 
 ## Prerequisites
 
 1. **AWS Permissions**:
    - `ssm:SendCommand`
-   - `ssm:GetParameter`
-   - `ec2:DescribeInstances`
+   - `ssm:ListCommandInvocations`
 2. **Target EC2**:
-   - SSM Agent installed
-   - PowerShell available
-   - Network access to SQL Server
+   - SSM Agent installed and running
+   - Network connectivity from GitHub Actions runner
+   - PowerShell available on target
 3. **Environment Variable**:
-   - `MATRIX_INSTANCE_LIST` from previous step
+   - `MATRIX_INSTANCE_LIST` must contain valid instance information
 
 ## Example Usage
 
 ```yaml
-- uses: paassql-pipelines/validate-create-sql-user@v1
+- uses: paassql-pipelines/transfer-script@v1
   with:
-    destination-path: 'C:\sql-scripts'
+    destination-path: 'C:\scripts\sql'
     aws-region: 'us-east-1'
-    sql-password-parameter-store: '/prod/db/password'
-    db-name: 'customer_data'
-    sql-user-name: 'app_user'
-    username: 'DOMAIN\svc_github'
-    needs-windows-authentication: true
   env:
     MATRIX_INSTANCE_LIST: ${{ steps.previous-step.outputs.MATRIX_INSTANCE_LIST }}
 ```
 
-## Workflow Steps
+## Behavior
 
-1. Transfers PowerShell scripts to target server
-2. Validates and deletes existing SQL user (if found)
-3. Creates new SQL user with permissions
+1. Encodes `sql-actions.ps1` as base64
+2. Creates target directory if needed
+3. Transfers script to all instances in `MATRIX_INSTANCE_LIST`
+4. Waits for successful transfer with 5-minute timeout
+5. Fails if any instance transfer fails
 
 ## Supported Runners
 
+- **Linux**: Requires AWS CLI and `jq`
 - **Windows**: Native PowerShell support
-- **Linux/macOS**: Requires PowerShell Core
 
 ## Error Handling
 
 Fails if:
 - Required inputs are missing
-- SSM parameter not found
-- SQL connection fails
-- User validation fails
-- Permission issues occur
+- AWS permissions insufficient
+- Target directory cannot be created
+- Script transfer times out
+- Any instance in matrix fails
 
 
-####################################
+##################
 
 runs:
   using: composite
   steps:
     - name: Validate inputs
-      shell: pwsh
+      shell: bash
       run: |
-        # Required field validation
-        $requiredInputs = @(
-          @{Name='destination-path'; Value="${{ inputs.destination-path }}"},
-          @{Name='aws-region'; Value="${{ inputs.aws-region }}"},
-          @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
-          @{Name='db-name'; Value="${{ inputs.db-name }}"},
-          @{Name='sql-user-name'; Value="${{ inputs.sql-user-name }}"},
-          @{Name='username'; Value="${{ inputs.username }}"}
-        )
-
-        foreach ($input in $requiredInputs) {
-          if ([string]::IsNullOrWhiteSpace($input.Value)) {
-            Write-Host "::error::$($input.Name) is required"
-            exit 1
-          }
-        }
-
-        # Validate boolean input
-        if ("${{ inputs.needs-windows-authentication }}" -notmatch '^(true|false)$') {
-          Write-Host "::error::needs-windows-authentication must be 'true' or 'false'"
+        # Validate required inputs
+        if [ -z "${{ inputs.destination-path }}" ]; then
+          echo "::error::destination-path is required"
           exit 1
-        }
-
-        # Validate domain\username format when Windows Auth is enabled
-        if ("${{ inputs.needs-windows-authentication }}" -eq 'true' -and "${{ inputs.username }}" -notmatch '^[^\\]+\\[^\\]+$') {
-          Write-Host "::error::username must be in domain\user format when using Windows Authentication"
+        fi
+        
+        if [ -z "${{ inputs.aws-region }}" ]; then
+          echo "::error::aws-region is required"
           exit 1
-        }
-
-        # Validate SQL username format
-        if ("${{ inputs.sql-user-name }}" -match '[\[\]\s,;]') {
-          Write-Host "::error::sql-user-name contains invalid characters"
+        fi
+        
+        # Validate AWS region format (basic check)
+        if [[ ! "${{ inputs.aws-region }}" =~ ^[a-z]{2}-[a-z]+-[0-9]$ ]]; then
+          echo "::error::Invalid AWS region format"
           exit 1
-        }
-
+        fi
+        
         # Validate MATRIX_INSTANCE_LIST exists
-        if (-not $env:MATRIX_INSTANCE_LIST) {
-          Write-Host "::error::MATRIX_INSTANCE_LIST environment variable is required"
+        if [ -z "$MATRIX_INSTANCE_LIST" ]; then
+          echo "::error::MATRIX_INSTANCE_LIST environment variable is required"
           exit 1
-        }
+        fi
+        
+        # Validate script exists
+        if [ ! -f "${{ github.action_path }}/sql-actions.ps1" ]; then
+          echo "::error::sql-actions.ps1 not found in action directory"
+          exit 1
+        fi
