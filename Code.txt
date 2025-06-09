@@ -1,101 +1,114 @@
-name: 'Get EC2 Instance ID from Dynamite API'
-description: 'Retrieves instance ID based on DB name, role, AWS region and environment'
-inputs:
-  target-servers:
-    description: 'The host to deploy the DACPAC to'
-    required: true
-  db-name:
-    description: 'The database name the DACPAC is being applied against'
-    required: true
-  role-list:
-    description: 'List of roles associated with target servers (JSON array or comma-separated)'
-    required: true
-  db-server-host:
-    description: 'DB server hostname (depending upon the environment)'
-    required: false
-  is-test-account:
-    description: 'Boolean value for impersonating user via Windows Authentication'
-    required: true
-    default: 'false'
-  aws-region:
-    description: 'AWS region where the instances are located'
-    required: true
-  working-directory:
-    description: 'Directory where the action will execute'
-    required: false
-    default: '.'
-    
-outputs:
-  MATRIX_INSTANCE_LIST:
-    description: 'JSON matrix containing instance IDs, DB server names, and roles'
+# SQL User Management Action
 
-runs:
-  using: "composite"
-  steps:
-    - name: Validate inputs
-      shell: bash
-      run: |
-        if [ -z "${{ inputs.target-servers }}" ]; then
-          echo "::error::target-servers input is required"
-          exit 1
-        fi
-        if [ -z "${{ inputs.db-name }}" ]; then
-          echo "::error::db-name input is required"
-          exit 1
-        fi
-        if [ -z "${{ inputs.role-list }}" ]; then
-          echo "::error::role-list input is required"
-          exit 1
-        fi
-        if [ -z "${{ inputs.aws-region }}" ]; then
-          echo "::error::aws-region input is required"
-          exit 1
-        fi
-        
-    # Rest of your existing steps remain the same...
-    # [Previous PowerShell steps here...]
-
-
-#################
-
-# Get EC2 Instance ID from Dynamite API
-
-Retrieves EC2 instance IDs based on database name, role, AWS region and environment using the Dynamite API.
+Validates, deletes (if exists), and creates a new SQL user with permissions on target servers via AWS SSM.
 
 ## Inputs
 
-| Name | Description | Required | Default |
-|------|-------------|----------|---------|
-| `target-servers` | The host to deploy the DACPAC to | yes | - |
-| `db-name` | The database name being applied against | yes | - |
-| `role-list` | List of roles (JSON array or comma-separated) | yes | - |
-| `db-server-host` | DB server hostname | no | - |
-| `is-test-account` | Use Windows Authentication impersonation | yes | `false` |
-| `aws-region` | AWS region where instances are located | yes | - |
-| `working-directory` | Directory where action executes | no | `.` |
+| Name | Description | Required | Default | Validation |
+|------|-------------|----------|---------|------------|
+| `destination-path` | Remote path for script execution | Yes | - | Valid Windows path |
+| `aws-region` | AWS region of target instances | Yes | - | Valid AWS region |
+| `sql-password-parameter-store` | SSM parameter store path for SQL password | Yes | - | Valid parameter path |
+| `db-name` | Target database name | Yes | - | Non-empty string |
+| `sql-user-name` | SQL username to manage | Yes | - | Valid SQL identifier |
+| `username` | Domain user (domain\user format) | Yes | - | Valid domain format |
+| `needs-windows-authentication` | Authentication method | Yes | `true` | `true`/`false` |
 
-## Outputs
+## Prerequisites
 
-- `MATRIX_INSTANCE_LIST`: JSON matrix containing instance IDs, DB server names, and roles
+1. **AWS Permissions**:
+   - `ssm:SendCommand`
+   - `ssm:GetParameter`
+   - `ec2:DescribeInstances`
+2. **Target EC2**:
+   - SSM Agent installed
+   - PowerShell available
+   - Network access to SQL Server
+3. **Environment Variable**:
+   - `MATRIX_INSTANCE_LIST` from previous step
 
 ## Example Usage
 
 ```yaml
-- uses: paassql-pipelines/get-ec2instance-id@v1
+- uses: paassql-pipelines/validate-create-sql-user@v1
   with:
-    target-servers: 'my-db-server'
-    db-name: 'production-db'
-    role-list: '["primary", "secondary"]'
+    destination-path: 'C:\sql-scripts'
     aws-region: 'us-east-1'
-    is-test-account: false
+    sql-password-parameter-store: '/prod/db/password'
+    db-name: 'customer_data'
+    sql-user-name: 'app_user'
+    username: 'DOMAIN\svc_github'
+    needs-windows-authentication: true
+  env:
+    MATRIX_INSTANCE_LIST: ${{ steps.previous-step.outputs.MATRIX_INSTANCE_LIST }}
 ```
+
+## Workflow Steps
+
+1. Transfers PowerShell scripts to target server
+2. Validates and deletes existing SQL user (if found)
+3. Creates new SQL user with permissions
 
 ## Supported Runners
 
-- Windows
-- Linux (requires PowerShell Core)
+- **Windows**: Native PowerShell support
+- **Linux/macOS**: Requires PowerShell Core
 
-## Required Permissions
+## Error Handling
 
-- AWS EC2 read permissions (when `is-test-account: true`)
-- Network access to Dynamite API (when `is-test-account: false`)
+Fails if:
+- Required inputs are missing
+- SSM parameter not found
+- SQL connection fails
+- User validation fails
+- Permission issues occur
+
+
+####################################
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: pwsh
+      run: |
+        # Required field validation
+        $requiredInputs = @(
+          @{Name='destination-path'; Value="${{ inputs.destination-path }}"},
+          @{Name='aws-region'; Value="${{ inputs.aws-region }}"},
+          @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
+          @{Name='db-name'; Value="${{ inputs.db-name }}"},
+          @{Name='sql-user-name'; Value="${{ inputs.sql-user-name }}"},
+          @{Name='username'; Value="${{ inputs.username }}"}
+        )
+
+        foreach ($input in $requiredInputs) {
+          if ([string]::IsNullOrWhiteSpace($input.Value)) {
+            Write-Host "::error::$($input.Name) is required"
+            exit 1
+          }
+        }
+
+        # Validate boolean input
+        if ("${{ inputs.needs-windows-authentication }}" -notmatch '^(true|false)$') {
+          Write-Host "::error::needs-windows-authentication must be 'true' or 'false'"
+          exit 1
+        }
+
+        # Validate domain\username format when Windows Auth is enabled
+        if ("${{ inputs.needs-windows-authentication }}" -eq 'true' -and "${{ inputs.username }}" -notmatch '^[^\\]+\\[^\\]+$') {
+          Write-Host "::error::username must be in domain\user format when using Windows Authentication"
+          exit 1
+        }
+
+        # Validate SQL username format
+        if ("${{ inputs.sql-user-name }}" -match '[\[\]\s,;]') {
+          Write-Host "::error::sql-user-name contains invalid characters"
+          exit 1
+        }
+
+        # Validate MATRIX_INSTANCE_LIST exists
+        if (-not $env:MATRIX_INSTANCE_LIST) {
+          Write-Host "::error::MATRIX_INSTANCE_LIST environment variable is required"
+          exit 1
+        }
