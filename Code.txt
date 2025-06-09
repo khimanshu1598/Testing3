@@ -1,93 +1,98 @@
-# Script Transfer Action
+# SQL Deploy Report Check Action
 
-Transfers PowerShell scripts to target EC2 instances using AWS Systems Manager (SSM).
+Compares deploy report XML files against baseline versions to determine if manual approval is required for database changes.
 
 ## Inputs
 
 | Name | Description | Required | Validation |
 |------|-------------|----------|------------|
-| `destination-path` | Target directory path on remote server | Yes | Valid Windows path |
-| `aws-region` | AWS region of target instances | Yes | Valid AWS region name |
+| `deploy-report-file-path` | Path(s) to deploy report XML file(s) | Yes | Comma-separated paths to valid XML files |
 
-## Prerequisites
+## Outputs
 
-1. **AWS Permissions**:
-   - `ssm:SendCommand`
-   - `ssm:ListCommandInvocations`
-2. **Target EC2**:
-   - SSM Agent installed and running
-   - Network connectivity from GitHub Actions runner
-   - PowerShell available on target
-3. **Environment Variable**:
-   - `MATRIX_INSTANCE_LIST` must contain valid instance information
+| Name | Description |
+|------|-------------|
+| `approval-required` | Boolean indicating whether approval is needed (`true`/`false`) |
+
+## Behavior
+
+1. Validates input file paths exist
+2. Compares each XML file against its baseline version
+3. Sets `APPROVAL_REQUIRED` environment variable
+4. Outputs `approval-required` boolean value
 
 ## Example Usage
 
 ```yaml
-- uses: paassql-pipelines/transfer-script@v1
+- uses: paassql-pipelines/sql-deploy-report-check@v1
+  id: report-check
   with:
-    destination-path: 'C:\scripts\sql'
-    aws-region: 'us-east-1'
-  env:
-    MATRIX_INSTANCE_LIST: ${{ steps.previous-step.outputs.MATRIX_INSTANCE_LIST }}
+    deploy-report-file-path: 'reports/deploy-report.xml,reports/another-report.xml'
+  
+- name: Check Approval Status
+  run: |
+    if [ "${{ steps.report-check.outputs.approval-required }}" == "true" ]; then
+      echo "Approval required for deployment"
+    fi
 ```
-
-## Behavior
-
-1. Encodes `sql-actions.ps1` as base64
-2. Creates target directory if needed
-3. Transfers script to all instances in `MATRIX_INSTANCE_LIST`
-4. Waits for successful transfer with 5-minute timeout
-5. Fails if any instance transfer fails
 
 ## Supported Runners
 
-- **Linux**: Requires AWS CLI and `jq`
 - **Windows**: Native PowerShell support
+- **Linux/macOS**: Requires PowerShell Core
 
 ## Error Handling
 
 Fails if:
-- Required inputs are missing
-- AWS permissions insufficient
-- Target directory cannot be created
-- Script transfer times out
-- Any instance in matrix fails
+- No deploy report path provided
+- Specified XML files not found
+- XML files are malformed
+- Baseline comparison fails
 
-
-##################
+############################
 
 runs:
-  using: composite
+  using: "composite"
   steps:
     - name: Validate inputs
-      shell: bash
+      id: input-validation
+      shell: powershell
       run: |
-        # Validate required inputs
-        if [ -z "${{ inputs.destination-path }}" ]; then
-          echo "::error::destination-path is required"
+        # Validate required input
+        if ([string]::IsNullOrWhiteSpace("${{ inputs.deploy-report-file-path }}")) {
+          Write-Host "::error::deploy-report-file-path is required"
           exit 1
-        fi
-        
-        if [ -z "${{ inputs.aws-region }}" ]; then
-          echo "::error::aws-region is required"
+        }
+
+        # Split and validate each path
+        $paths = "${{ inputs.deploy-report-file-path }}" -split ',' | ForEach-Object { $_.Trim() }
+        $missingFiles = @()
+
+        foreach ($path in $paths) {
+          if (-not (Test-Path $path)) {
+            $missingFiles += $path
+          }
+          elseif (-not (Test-Path "$path.baseline")) {
+            Write-Host "::warning::Baseline file not found for $path"
+          }
+        }
+
+        if ($missingFiles.Count -gt 0) {
+          Write-Host "::error::Missing deploy report file(s): $($missingFiles -join ', ')"
           exit 1
-        fi
-        
-        # Validate AWS region format (basic check)
-        if [[ ! "${{ inputs.aws-region }}" =~ ^[a-z]{2}-[a-z]+-[0-9]$ ]]; then
-          echo "::error::Invalid AWS region format"
+        }
+
+        # Validate XML structure of files
+        $invalidXmlFiles = @()
+        foreach ($path in $paths) {
+          try {
+            [xml](Get-Content $path) | Out-Null
+          } catch {
+            $invalidXmlFiles += $path
+          }
+        }
+
+        if ($invalidXmlFiles.Count -gt 0) {
+          Write-Host "::error::Invalid XML format in file(s): $($invalidXmlFiles -join ', ')"
           exit 1
-        fi
-        
-        # Validate MATRIX_INSTANCE_LIST exists
-        if [ -z "$MATRIX_INSTANCE_LIST" ]; then
-          echo "::error::MATRIX_INSTANCE_LIST environment variable is required"
-          exit 1
-        fi
-        
-        # Validate script exists
-        if [ ! -f "${{ github.action_path }}/sql-actions.ps1" ]; then
-          echo "::error::sql-actions.ps1 not found in action directory"
-          exit 1
-        fi
+        }
