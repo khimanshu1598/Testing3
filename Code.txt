@@ -1,98 +1,144 @@
-# SQL Deploy Report Check Action
+# SQL DACPAC Deployer
 
-Compares deploy report XML files against baseline versions to determine if manual approval is required for database changes.
+Executes SQL Server Data-Tier Application Package (DACPAC) operations using `sqlpackage.exe`.
 
 ## Inputs
 
 | Name | Description | Required | Validation |
 |------|-------------|----------|------------|
-| `deploy-report-file-path` | Path(s) to deploy report XML file(s) | Yes | Comma-separated paths to valid XML files |
+| `Action` | Operation to perform | Yes | `extract`, `deployreport`, `script`, `publish` |
+| `DacpacPath` | Path to DACPAC file | Conditional* | Valid file path when required |
+| `PublishProfilePath` | Path to publish profile | Conditional* | Valid file path when required |
+| `DatabaseName` | Target database name | Yes | Non-empty string |
+| `UserName` | SQL username | Yes | Valid SQL identifier |
+| `SqlPackagePath` | Path to sqlpackage.exe | Yes | Valid executable path |
+| `sql-password-parameter-store` | SSM parameter for password | Yes | Valid parameter path |
+| `ArtifactDownloadPath` | Artifact storage path | Yes | Valid directory path |
+| `ReleaseNumber` | Build release number | Yes | Non-empty string |
+| `FileName` | Output filename | Yes | Valid filename |
+| `TargetServer` | Target SQL server | Yes | Non-empty string |
+| `PublishProfileFilePath` | Publish profile path | Yes | Valid file path |
+| `UseMultiSubnetFailover` | Multi-subnet failover | Yes | `true`/`false` |
+| `SQLPackageDeployProperties` | Deployment properties | Yes | Valid JSON |
+| `SQLCMDVariables` | SQLCMD variables | Yes | Valid JSON |
+| `SQLPackageParameters` | SQLPackage parameters | Yes | Valid JSON |
+
+*\*Required for specific actions (e.g., DacpacPath required for publish)*
 
 ## Outputs
 
-| Name | Description |
-|------|-------------|
-| `approval-required` | Boolean indicating whether approval is needed (`true`/`false`) |
-
-## Behavior
-
-1. Validates input file paths exist
-2. Compares each XML file against its baseline version
-3. Sets `APPROVAL_REQUIRED` environment variable
-4. Outputs `approval-required` boolean value
+- Creates artifacts in specified `ArtifactDownloadPath`
+- Generates output files based on action type
 
 ## Example Usage
 
 ```yaml
-- uses: paassql-pipelines/sql-deploy-report-check@v1
-  id: report-check
+- uses: paassql-pipelines/sql-dacpac-deployer@v1
   with:
-    deploy-report-file-path: 'reports/deploy-report.xml,reports/another-report.xml'
-  
-- name: Check Approval Status
-  run: |
-    if [ "${{ steps.report-check.outputs.approval-required }}" == "true" ]; then
-      echo "Approval required for deployment"
-    fi
+    Action: 'publish'
+    DatabaseName: 'CustomerDB'
+    UserName: 'deploy_user'
+    SqlPackagePath: 'C:\Program Files\Microsoft SQL Server\150\DAC\bin\sqlpackage.exe'
+    sql-password-parameter-store: '/prod/db/password'
+    ArtifactDownloadPath: 'artifacts'
+    ReleaseNumber: 'v2.1.0'
+    FileName: 'deploy-output'
+    TargetServer: 'sql-server.prod'
+    PublishProfileFilePath: 'profiles/prod.publish.xml'
+    UseMultiSubnetFailover: 'true'
+    SQLPackageDeployProperties: '{"BlockOnPossibleDataLoss":"False"}'
+    SQLCMDVariables: '{"Environment":"Production"}'
+    SQLPackageParameters: '{"DiagnosticsFile":"deploy.log"}'
 ```
 
 ## Supported Runners
 
-- **Windows**: Native PowerShell support
-- **Linux/macOS**: Requires PowerShell Core
+- **Windows**: Native sqlpackage.exe support
+- **Linux/macOS**: Requires Windows container or cross-platform SQLPackage
+
+## Prerequisites
+
+1. **AWS Permissions**:
+   - `ssm:GetParameter` for password retrieval
+2. **SQLPackage**:
+   - Installed on runner
+   - Accessible via provided path
+3. **SQL Server**:
+   - Network connectivity from runner
+   - Proper authentication configured
 
 ## Error Handling
 
 Fails if:
-- No deploy report path provided
-- Specified XML files not found
-- XML files are malformed
-- Baseline comparison fails
+- Required inputs are missing/invalid
+- SQLPackage executable not found
+- DACPAC file not found (when required)
+- SQL Server connection fails
+- Invalid JSON parameters provided
+- SSM parameter not accessible
 
-############################
+###########################
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Validate inputs
-      id: input-validation
       shell: powershell
       run: |
-        # Validate required input
-        if ([string]::IsNullOrWhiteSpace("${{ inputs.deploy-report-file-path }}")) {
-          Write-Host "::error::deploy-report-file-path is required"
-          exit 1
-        }
+        # Validate required inputs
+        $requiredInputs = @(
+          @{Name='Action'; Value="${{ inputs.Action }}"; ValidValues=@('extract','deployreport','script','publish')},
+          @{Name='DatabaseName'; Value="${{ inputs.DatabaseName }}"},
+          @{Name='UserName'; Value="${{ inputs.UserName }}"},
+          @{Name='SqlPackagePath'; Value="${{ inputs.SqlPackagePath }}"},
+          @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
+          @{Name='ArtifactDownloadPath'; Value="${{ inputs.ArtifactDownloadPath }}"},
+          @{Name='ReleaseNumber'; Value="${{ inputs.ReleaseNumber }}"},
+          @{Name='FileName'; Value="${{ inputs.FileName }}"},
+          @{Name='TargetServer'; Value="${{ inputs.TargetServer }}"},
+          @{Name='PublishProfileFilePath'; Value="${{ inputs.PublishProfileFilePath }}"},
+          @{Name='UseMultiSubnetFailover'; Value="${{ inputs.UseMultiSubnetFailover }}"; ValidValues=@('true','false')},
+          @{Name='SQLPackageDeployProperties'; Value="${{ inputs.SQLPackageDeployProperties }}"},
+          @{Name='SQLCMDVariables'; Value="${{ inputs.SQLCMDVariables }}"},
+          @{Name='SQLPackageParameters'; Value="${{ inputs.SQLPackageParameters }}"}
+        )
 
-        # Split and validate each path
-        $paths = "${{ inputs.deploy-report-file-path }}" -split ',' | ForEach-Object { $_.Trim() }
-        $missingFiles = @()
-
-        foreach ($path in $paths) {
-          if (-not (Test-Path $path)) {
-            $missingFiles += $path
+        foreach ($input in $requiredInputs) {
+          if ([string]::IsNullOrWhiteSpace($input.Value)) {
+            Write-Host "::error::$($input.Name) is required"
+            exit 1
           }
-          elseif (-not (Test-Path "$path.baseline")) {
-            Write-Host "::warning::Baseline file not found for $path"
+          
+          if ($input.ValidValues -and $input.ValidValues -notcontains $input.Value) {
+            Write-Host "::error::$($input.Name) must be one of: $($input.ValidValues -join ', ')"
+            exit 1
           }
         }
 
-        if ($missingFiles.Count -gt 0) {
-          Write-Host "::error::Missing deploy report file(s): $($missingFiles -join ', ')"
-          exit 1
-        }
+        # Validate JSON inputs
+        $jsonInputs = @(
+          'SQLPackageDeployProperties',
+          'SQLCMDVariables',
+          'SQLPackageParameters'
+        )
 
-        # Validate XML structure of files
-        $invalidXmlFiles = @()
-        foreach ($path in $paths) {
+        foreach ($inputName in $jsonInputs) {
           try {
-            [xml](Get-Content $path) | Out-Null
+            $json = "${{ inputs.$inputName }}" | ConvertFrom-Json -ErrorAction Stop
           } catch {
-            $invalidXmlFiles += $path
+            Write-Host "::error::Invalid JSON format in $inputName"
+            exit 1
           }
         }
 
-        if ($invalidXmlFiles.Count -gt 0) {
-          Write-Host "::error::Invalid XML format in file(s): $($invalidXmlFiles -join ', ')"
+        # Action-specific validation
+        if ("${{ inputs.Action }}" -eq 'publish' -and [string]::IsNullOrWhiteSpace("${{ inputs.DacpacPath }}")) {
+          Write-Host "::error::DacpacPath is required for publish action"
+          exit 1
+        }
+
+        # Validate SQLPackage.exe exists
+        if (-not (Test-Path "${{ inputs.SqlPackagePath }}")) {
+          Write-Host "::error::sqlpackage.exe not found at specified path: ${{ inputs.SqlPackagePath }}"
           exit 1
         }
