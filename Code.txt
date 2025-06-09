@@ -1,58 +1,90 @@
-    run: |
-      # Validate required inputs
-      $requiredInputs = @(
-        @{Name='Action'; Value=$env:Action; ValidValues=@('extract','deployreport','script','publish')},
-        @{Name='DatabaseName'; Value=$env:DatabaseName},
-        @{Name='UserName'; Value=$env:UserName},
-        @{Name='SqlPackagePath'; Value=$env:SqlPackagePath},
-        @{Name='sql-password-parameter-store'; Value=$env:sql-password-parameter-store},
-        @{Name='ArtifactDownloadPath'; Value=$env:ArtifactDownloadPath},
-        @{Name='ReleaseNumber'; Value=$env:ReleaseNumber},
-        @{Name='FileName'; Value=$env:FileName},
-        @{Name='TargetServer'; Value=$env:TargetServer},
-        @{Name='PublishProfileFilePath'; Value=$env:PublishProfileFilePath},
-        @{Name='UseMultiSubnetFailover'; Value=$env:UseMultiSubnetFailover; ValidValues=@('true','false')},
-        @{Name='SQLPackageDeployProperties'; Value=$env:SQLPackageDeployProperties},
-        @{Name='SQLCMDVariables'; Value=$env:SQLCMDVariables},
-        @{Name='SQLPackageParameters'; Value=$env:SQLPackageParameters}
-      )
+End to End Testing: -
+All Xero GitHub Actions must now include a set of End To End tests in order to validate their core flow. These tests will exercise the live action so may require some form of setup or data in order to be usable.
 
-      foreach ($input in $requiredInputs) {
-        if ([string]::IsNullOrWhiteSpace($input.Value)) {
-          Write-Host "::error::$($input.Name) is required"
-          exit 1
-        }
+How: -
+Action must have a testing workflow in the folder .github/workflows/ which should run when changes in the action folder are detected in a pull request;
+The test workflow file must be named test-{action-name}.yml;
+Test both success and failure test cases when possible;
+Tests must also validate against the matrix of supported operating systems.
+Example Test
+Below is an example of a simple end to end workflow that tests a success flow on all three supported OS as well as a possible failure scenario.
 
-        if ($input.ValidValues -and $input.ValidValues -notcontains $input.Value) {
-          Write-Host "::error::$($input.Name) must be one of: $($input.ValidValues -join ', ')"
-          exit 1
-        }
-      }
+name: Test My New Action
 
-      # Validate JSON inputs
-      $jsonInputs = @(
-        @{ Name = 'SQLPackageDeployProperties'; Value = $env:SQLPackageDeployProperties },
-        @{ Name = 'SQLCMDVariables'; Value = $env:SQLCMDVariables },
-        @{ Name = 'SQLPackageParameters'; Value = $env:SQLPackageParameters }
-      )
+on:
+  pull_request:
+      paths:
+          - 'my-new-action/**'
+          - '.github/workflows/test-my-new-action.yaml'
 
-      foreach ($input in $jsonInputs) {
-        try {
-          $null = $input.Value | ConvertFrom-Json -ErrorAction Stop
-        } catch {
-          Write-Host "::error::Invalid JSON format in $($input.Name)"
-          exit 1
-        }
-      }
+permissions:
+  contents: read
 
-      # Action-specific validation
-      if ($env:Action -eq 'publish' -and [string]::IsNullOrWhiteSpace($env:DacpacPath)) {
-        Write-Host "::error::DacpacPath is required for publish action"
-        exit 1
-      }
+jobs:
+    success-test-os:
+        environment: test
+        strategy:
+          fail-fast: false
+          matrix:
+            os: [linux, windows, osx]
+        runs-on: [ self-hosted, "${{ matrix.os }}", runners-us-east-1 ]
+        steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
 
-      # Validate sqlpackage.exe path
-      if (-not (Test-Path $env:SqlPackagePath)) {
-        Write-Host "::error::sqlpackage.exe not found at specified path: $($env:SqlPackagePath)"
-        exit 1
-      }
+        - name: Call my new action
+          uses: ./my-new-action
+          with:
+            input-1: hello-world
+
+    failure-test:
+        environment: test
+        runs-on: [ self-hosted, linux, x64, runners-ap-southeast-2 ]
+        steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+
+        - name: My new action with no inputs
+          id: my-new-action-no-inputs
+          uses: ./my-new-action
+          continue-on-error: true
+
+        - name: Check My new action with no inputs step failed
+          if: ${{ !cancelled() }}
+          run: |
+            if [ ${{ steps.my-new-action-no-inputs.outcome }} != 'failure' ]; then
+                echo "My new action with no inputs step should have failed"
+                exit 1
+            fi
+
+Test Data: -
+In order to test some actions, you may require specific test data to pass into the action, e.g the build-test-spa action requires a SPA project it can compile. We have a library of basic test data here that can be used.
+
+This can then be consumed in your end to end workflow like this:
+
+- name: Checkout my-new-action
+  uses: actions/checkout@v4
+  with:
+    sparse-checkout: |
+    my-new-action
+    .github
+
+- name: Checkout test data
+  uses: ./.github/actions/checkout-test-data
+  with:
+    repository: xero-internal/github-actions-test-data
+    ssh-key: ${{ secrets.ACTIONS_TEST_DATA_DEPLOY_KEY }}
+    folder: spa
+
+Questions: -
+What should I end to end test?
+Ideally the e2e test should cover the most likely user success or failure flow of the action. For the most part, we are interested in the behaviour of the overall action you have built.
+
+Do I have to test all possible input combinations?
+No, we recognise that for most actions it would be difficult and of diminishing returns to craft end to end tests that can cover all possible combinations. Focus on the most likely scenarios first.
+
+Do I need to run all my e2e scenarios on Linux/Windows/Mac?
+No, even if your action is intended to be used on any runner OS, a single success path for each OS is fine. Additional success/failure tests can focus on a single OS.
+
+My composite action is made up of actions that are presumably already individually tested, why am I testing mine?
+While this is partly true, you still need to validate that the combination of actions you have brought together results in the correct behaviour/outcome. Subsequent changes to your action may cause unintended regressions so having an end to end test helps ensure that its behaviour remains consistent. Remember, actions in this repository are available to all Xero engineers, so someone else may find your action and wish to add/enhance its functionality from what you initially envisioned.
