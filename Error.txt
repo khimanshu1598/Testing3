@@ -1,99 +1,114 @@
-paassql-pipelines/validate-create-sql-user/action.yaml: -
+paassql-pipelines/download-package-and-contributor-package/action.yaml
 
-name: 'Create a new SQL user'
-description: 'Transfer the powershell scripts to Target server, Validate the existing sql user and delete and create a new sql user'
+name: 'Deploy and extract packages from JFrog artifactory'
+description: 'Downloads a NuGet .nupkg package from JFrog Artifactory and extracts it to a target directory for DACPAC deployments.'
 
 inputs:
-  destination-path:
-    description: 'Path on the target server where script needs to be added'
+  nuget-pkg-download-path:
+    description: 'Download path where the NuGet package will be saved.'
     required: true
-  aws-region:
-    description: 'AWS region details'
+  nuget-pkg-extract-path:
+    description: 'Path where the contents of the NuGet package will be extracted.'
     required: true
-  sql-password-parameter-store:
-    description: 'Name of the system manager parameter store which contains password for sql user'
+  package-name:
+    description: 'Name of the .nupkg file to download.'
     required: true
-  db-name:
-    description: 'Name of the Database'
+  webrequest-uri:
+    description: 'Full or base URL of the Artifactory server.'
     required: true
-  sql-user-name:
-    description: 'Name of the sql user to be created'
-    required: true
-  username:
-    description: 'Username of impersonated user in domainName\username format'
-    required: true
-  needs-windows-authentication:
-    description: 'Boolean value to impersonate the user using Windows Authentication or SQL Server Authentication'
-    required: true
-    default: true
 
 runs:
-  using: composite
+  using: "composite"
   steps:
   - name: Validate inputs
-    shell: pwsh
+    shell: powershell
     run: |
-      # Required field validation
-      $requiredInputs = @(
-        @{Name='destination-path'; Value="${{ inputs.destination-path }}"},
-        @{Name='aws-region'; Value="${{ inputs.aws-region }}"},
-        @{Name='sql-password-parameter-store'; Value="${{ inputs.sql-password-parameter-store }}"},
-        @{Name='db-name'; Value="${{ inputs.db-name }}"},
-        @{Name='sql-user-name'; Value="${{ inputs.sql-user-name }}"},
-        @{Name='username'; Value="${{ inputs.username }}"}
-      )
+      if (-not "${{ inputs.nuget-pkg-download-path }}") {
+        Write-Error "Input 'nuget-pkg-download-path' is required but not provided."
+        exit 1
+      }
+      if (-not "${{ inputs.nuget-pkg-extract-path }}") {
+        Write-Error "Input 'nuget-pkg-extract-path' is required but not provided."
+        exit 1
+      }
+      if (-not "${{ inputs.package-name }}") {
+        Write-Error "Input 'package-name' is required but not provided."
+        exit 1
+      }
+      if (-not "${{ inputs.webrequest-uri }}") {
+        Write-Error "Input 'webrequest-uri' is required but not provided."
+        exit 1
+      }
 
-      foreach ($input in $requiredInputs) {
-        if ([string]::IsNullOrWhiteSpace($input.Value)) {
-          Write-Host "::error::$($input.Name) is required"
-          exit 1
+  - name: Clean or create download folder
+    shell: powershell
+    run: |
+      if (Test-Path -Path "${{ inputs.nuget-pkg-download-path }}") {
+        Write-Host "🧹 Cleaning existing download folder..."
+        Remove-Item -Path "${{ inputs.nuget-pkg-download-path }}\*" -Recurse -Force
+      } else {
+        Write-Host "Creating new download folder..."
+        New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-download-path }}" -Force
+      }
+
+  - name: Download NuGet package from Artifactory
+    shell: powershell
+    run: |
+      $url = "${{ inputs.webrequest-uri }}\${{ inputs.package-name }}"
+      $outputFile = "${{ inputs.nuget-pkg-download-path }}\${{ inputs.package-name }}"
+
+      Write-Host "Downloading package from $url..."
+      Invoke-WebRequest -Uri $url -OutFile $outputFile
+
+      if (-not (Test-Path $outputFile)) {
+        Write-Error "Failed to download the package."
+        exit 1
+      }
+
+      Write-Host "Download complete: $outputFile"
+
+  - name: Clean or create extract folder
+    shell: powershell
+    run: |
+      if (Test-Path -Path "${{ inputs.nuget-pkg-extract-path }}") {
+        Write-Host "Cleaning existing extraction folder..."
+        Remove-Item -Path "${{ inputs.nuget-pkg-extract-path }}\*" -Recurse -Force
+      } else {
+        Write-Host "Creating new extraction folder..."
+        New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-extract-path }}" -Force
+      }
+
+  - name: Extract .nupkg file contents
+    shell: powershell
+    run: |
+      $nupkg = Get-ChildItem -Path "${{ inputs.nuget-pkg-download-path }}" -Filter *.nupkg | Select-Object -First 1
+
+      if (-not $nupkg) {
+        Write-Error "No .nupkg file found to extract."
+        exit 1
+      }
+
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+      Add-Type -AssemblyName System.IO.Compression
+
+      $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
+
+      foreach ($entry in $zip.Entries) {
+        $destination = Join-Path "${{ inputs.nuget-pkg-extract-path }}" $entry.FullName
+        $dir = [System.IO.Path]::GetDirectoryName($destination)
+        if (-not (Test-Path $dir)) {
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        if (![string]::IsNullOrWhiteSpace($entry.Name)) {
+          [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $true)
         }
       }
 
-  - name: Transfer GHA scripts to target server
-    id: transfer-script
-    uses: xero-internal/dacpac-actions/paassql-pipelines/transfer-script@PIP-2135-Himanshu
-    with:
-      destination-path: ${{ inputs.destination-path }}
-      aws-region: ${{ inputs.aws-region }}
+      $zip.Dispose()
+      Write-Host "Extracted contents to ${{ inputs.nuget-pkg-extract-path }}"
 
-  - name: Validate if the SQL User exists and delete the SQL User
-    id: validate-user
-    uses: xero-internal/dacpac-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
-    with:
-      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
-      db-name: ${{ inputs.db-name }}
-      sql-user-name: ${{ inputs.sql-user-name }}
-      sql-activity: 'validate-delete-user'
-      destination-path: ${{ inputs.destination-path }}
-      aws-region: ${{ inputs.aws-region }}
-      username: ${{ inputs.username }}
-      needs-windows-authentication: ${{ inputs.needs-windows-authentication }}
-
-  - name: Create a New SQL User and grant permissions to the new user
-    id: create-user
-    uses: xero-internal/dacpac-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
-    with:
-      sql-password-parameter-store: ${{ inputs.sql-password-parameter-store }}
-      db-name: ${{ inputs.db-name }}
-      sql-user-name: ${{ inputs.sql-user-name }}
-      sql-activity: 'create-user'
-      destination-path: ${{ inputs.destination-path }}
-      aws-region: ${{ inputs.aws-region }}
-      username: ${{ inputs.username }}
-      needs-windows-authentication: ${{ inputs.needs-windows-authentication }}
-
-#########################################
-.github/workflows/payroll-au-superannuation.yml: -
-
-    - name: Create a new SQL User
-      id: create-user
-      uses: ./.github/actions/validate-create-sql-user
-      with:
-        file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
-        destination-path: 'C:\\Temp\\Superannuation'
-        aws-region: ${{ env.AWS_REGION }}
-        sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-        db-name: ${{ env.DB_NAME }}
-        sql-user-name: ${{ env.SQL_USER_NAME }}
-        username: ${{ env.IMPERSONATED_USERNAME }}
+  - name: List extracted files (debug)
+    shell: bash
+    run: |
+      echo "Contents of extraction directory:"
+      ls -l "${{ inputs.nuget-pkg-extract-path }}"
