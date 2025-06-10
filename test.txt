@@ -1,296 +1,111 @@
-name: Global Tax Mapper Github Workflow
+name: Test Validate Create SQL User
 
 on:
-  workflow_dispatch:
-    inputs:
-      DACPAC_ENVIRONMENT:
-        type: choice
-        description: Example LS6 Global - 04, Production Global - 04
-        options:
-          - LS6 Global - 04
-          - Production Global - 04
-      RELEASE_NUMBER:
-        required: true
-        description: The Release number which will come from TeamCity
   pull_request:
     paths:
-      - '.github/workflows/global-tax-mapper-workflow.yaml'
-      - '.github/actions/**'
+      - 'paassql-pipelines/validate-create-sql-user/**'
+      - '.github/workflows/test-validate-create-sql-user.yml'
 
 permissions:
-  id-token: write
   contents: read
-  pull-requests: write
-  actions: read
 
 jobs:
-  generate-deploy-report-deploy-script:
-    strategy:
-      matrix:
-        include:
-          - dacpacEnv: LS6 Global - 04
-            envName: test
-            runner: [self-hosted, windows, runners-us-west-2]
-          
-          - dacpacEnv:  Production Global - 04
-            envName: test
-            runner: [self-hosted, windows, runners-us-east-1]
-    runs-on: ${{ matrix.runner }}
-    environment: ${{ matrix.envName }}
-
-    env:
-      GITHUB_ENVIRONMENT: ${{ matrix.envName }}
-      DACPAC_ENVIRONMENT: ${{ github.event.inputs.DACPAC_ENVIRONMENT || 'LS6 Global - 04' }}
-      ADD_ARTIFACTS_TO_RELEASE: ${{ vars.ADD_ARTIFACTS_TO_RELEASE }}
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      DB_NAME: ${{ vars.DB_NAME }}
-      DEPLOYMENT_ROLE_ARN: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-      MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
-      MULTI_SUBNET_FAILOVER: ${{ vars.MULTI_SUBNET_FAILOVER }}
-      NUGET_PACKAGE_PATH: ${{ vars.NUGET_PACKAGE_PATH }}
-      NUGET_CONTRIBUTORS_PACKAGE_PATH: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
-      OD_GHA_FILE_PATH: "od-gha-files"
-      OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
-      PUBLISH_PROFILE_FILE_NAME: ${{ vars.PUBLISH_PROFILE_FILE_NAME }}
-      # RELEASE_NUMBER: ${{ vars.RELEASE_NUMBER }}
-      RELEASE_NUMBER: ${{ github.event.inputs.RELEASE_NUMBER || '0.0.0.107' }}
-      SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      SQLPACKAGE_DIR: '${{ github.workspace }}\sqlpackage'
-      SQL_PACKAGE_DEPLOY_PROPERTIES: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
-      SQL_CMD_VARIABLES: ${{ vars.SQL_CMD_VARIABLES }}
-      SQL_PASSWORD_PARAMETER_STORE: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
-      SQL_PACKAGE_PARAMETERS: ${{ vars.SQL_PACKAGE_PARAMETERS  }}
-      SQL_USER_NAME: ${{ vars.SQL_USER_NAME }}
-      TARGET_SERVERS: ${{ vars.TARGET_SERVERS }}
-      USE_CLUSTER_NAMES: ${{ vars.USE_CLUSTER_NAMES }}
-
-# jobs:
-#   generate-deploy-report-deploy-script:
-#     runs-on: [ self-hosted, windows, runners-us-west-2 ]
-#     environment: test
+  success-test-windows:
+    environment: test
+    runs-on: [self-hosted, windows, runners-us-east-1]
     steps:
-        - name: "Checkout"
-          uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-        - name: Skip if matrix.dacpacEnv doesn't match input
-          if: ${{ github.event.inputs.DACPAC_ENVIRONMENT != matrix.dacpacEnv }}
-          run: echo "Skipping this matrix entry as it doesn't match DACPAC_ENVIRONMENT"
-          shell: bash
+      - name: Call validate-create-sql-user action with valid inputs
+        uses: ./paassql-pipelines/validate-create-sql-user
+        with:
+          destination-path: 'C:\temp\sql-scripts'
+          aws-region: 'us-east-1'
+          sql-password-parameter-store: '/test/sql/password'
+          db-name: 'TestDatabase'
+          sql-user-name: 'TestUser'
+          username: 'DOMAIN\testuser'
+          needs-windows-authentication: true
 
-        - name: Fail-safe Exit
-          if: ${{ github.event.inputs.DACPAC_ENVIRONMENT != matrix.dacpacEnv }}
-          run: exit 0
-          shell: bash
+  failure-test-missing-required-inputs:
+    environment: test
+    runs-on: [self-hosted, windows, runners-us-east-1]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-        - name: Print Environment Info
-          run: |
-            echo "Running for DACPAC_ENVIRONMENT = ${{ env.DACPAC_ENVIRONMENT }}"
-            echo "Running for GITHUB_ENVIRONMENT = ${{ env.GITHUB_ENVIRONMENT }}"
-            echo "Selected Runner = ${{ runner.name }}"
+      - name: Call action with missing destination-path
+        id: missing-destination-path
+        uses: ./paassql-pipelines/validate-create-sql-user
+        with:
+          aws-region: 'us-east-1'
+          sql-password-parameter-store: '/test/sql/password'
+          db-name: 'TestDatabase'
+          sql-user-name: 'TestUser'
+          username: 'DOMAIN\testuser'
+        continue-on-error: true
 
-        - name: Download Dependencies and Utilities
-          id: download-dependencies
-          uses: ./.github/actions/download-packages
-          with:
-            oidc-role: ${{ env.OIDC_ROLE_ARN }}
-            oidc-target-role: ${{ env.DEPLOYMENT_ROLE_ARN }}
-            aws-region: ${{ env.AWS_REGION }}
-          
-        - name: Deploy the Jfrog artifactory NuGet Package and extract it in GHA Runner
-          id: deploy-extract-NuGet
-          uses: ./.github/actions/deploy-extract-packages
-          with:
-            nuget-pkg-download-path: ${{ env.NUGET_PACKAGE_PATH }}
-            nuget-pkg-extract-path: ${{ github.workspace }}\packages
-            webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/GlobalTaxMapperDB/
-            package-name: GlobalTaxMapperDB.${{ env.RELEASE_NUMBER }}.nupkg
+      - name: Check missing destination-path step failed
+        if: ${{ !cancelled() }}
+        run: |
+          if ("${{ steps.missing-destination-path.outcome }}" -ne "failure") {
+            Write-Host "Action with missing destination-path should have failed"
+            exit 1
+          }
 
-        - name: Deploy the DAC Deploy Contributor Package from Jfrog artifactory and extract it in GHA Runner
-          id: deploy-extract-contributor-package
-          uses: ./.github/actions/deploy-extract-packages
-          with:
-            nuget-pkg-download-path: ${{ env.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
-            nuget-pkg-extract-path: ${{ github.workspace }}\packages\contributors
-            webrequest-uri: https://artifactory.abc-support.com/artifactory/octopus-dev-local/abcDeploymentContributors/
-            package-name: abcDeploymentContributors.0.0.33.nupkg
+      - name: Call action with missing aws-region
+        id: missing-aws-region
+        uses: ./paassql-pipelines/validate-create-sql-user
+        with:
+          destination-path: 'C:\temp\sql-scripts'
+          sql-password-parameter-store: '/test/sql/password'
+          db-name: 'TestDatabase'
+          sql-user-name: 'TestUser'
+          username: 'DOMAIN\testuser'
+        continue-on-error: true
 
+      - name: Check missing aws-region step failed
+        if: ${{ !cancelled() }}
+        run: |
+          if ("${{ steps.missing-aws-region.outcome }}" -ne "failure") {
+            Write-Host "Action with missing aws-region should have failed"
+            exit 1
+          }
 
+      - name: Call action with missing sql-password-parameter-store
+        id: missing-sql-password
+        uses: ./paassql-pipelines/validate-create-sql-user
+        with:
+          destination-path: 'C:\temp\sql-scripts'
+          aws-region: 'us-east-1'
+          db-name: 'TestDatabase'
+          sql-user-name: 'TestUser'
+          username: 'DOMAIN\testuser'
+        continue-on-error: true
 
-        - name: "Fetch the Instance ID and Node ID based on USE_CLUSTER_NAMES value"
-          id: fetch-instance-node
-          uses: ./.github/actions/get-ec2instance-id
-          with:
-            target-servers: ${{ env.TARGET_SERVERS }}
-            db-name: ${{ env.DB_NAME }}
-            role-list: ${{ env.USE_CLUSTER_NAMES == 'true' && '["primary","sync_secondary","principal_read_only"]' || 'primary' }}
-            db-server-host: ${{ env.GITHUB_ENVIRONMENT == 'production' && 'prd.aws.abc.com' || 'uat.aws.abc.com' }}       
+      - name: Check missing sql-password-parameter-store step failed
+        if: ${{ !cancelled() }}
+        run: |
+          if ("${{ steps.missing-sql-password.outcome }}" -ne "failure") {
+            Write-Host "Action with missing sql-password-parameter-store should have failed"
+            exit 1
+          }
 
-        - name: Generate and store password
-          id: password-gen
-          uses: ./.github/actions/generate-password
-          with:
-            sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-            aws-region: ${{ env.AWS_REGION }}
+  failure-test-sql-authentication:
+    environment: test
+    runs-on: [self-hosted, windows, runners-us-east-1]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-        - name: Create a new SQL User
-          id: create-user
-          uses: ./.github/actions/validate-create-sql-user
-          with:
-            file-path: '${{ env.OD_GHA_FILE_PATH }}/sql-actions.ps1'
-            destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
-            aws-region: ${{ env.AWS_REGION }}
-            sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-            db-name: ${{ env.DB_NAME }}
-            sql-user-name: ${{ env.SQL_USER_NAME }}
-
-        - name: DeployReport DACPAC
-          id: deploy-report
-          uses: ./.github/actions/sql-dacpac-deployer
-          with:
-            Action: "DeployReport"
-            DacpacPath: "${{ github.workspace }}\\packages\\GlobalTaxMapperDB.dacpac"
-            DatabaseName: "${{ env.DB_NAME }}"
-            UserName: "${{ env.SQL_USER_NAME }}"
-            SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
-            sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
-            ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
-            ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
-            FileName: "deployreport.xml"
-            TargetServer: ${{ env.TARGET_SERVERS }}
-            PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
-            UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
-            SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
-            SQLCMDVariables: ${{ env.SQL_CMD_VARIABLES }}
-            SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
-
-        - name: SQL Deploy Report Check
-          id: sql-deploy-report-check
-          shell: powershell
-          run: |
-            $scriptPath = "${{ github.workspace }}\od-gha-files\SqlDeployReportCheck.ps1"
-            $pathsArray = $env:OutPutPath -split ','
-        
-            $approvalRequired = $false
-            foreach ($path in $pathsArray) {
-              $output = & $scriptPath -DeployReportPath $path
-              Write-Host "DeployReportCheck Output: $output"
-              if ($output -notmatch "No change detected in database") {
-                  $approvalRequired = $true
-              }
-            }
-            
-            # echo "Value of approvalRequired: $approvalRequired"
-            echo "APPROVAL_REQUIRED=$($approvalRequired.ToString().ToLower())" >> $env:GITHUB_ENV
-            echo "approval-required=$($approvalRequired.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-
-        - name: Script DACPAC
-          id: script-dacpac
-          uses: ./.github/actions/sql-dacpac-deployer
-          with:
-            Action: "Script"
-            DacpacPath: "${{ github.workspace }}\\packages\\GlobalTaxMapperDB.dacpac"
-            DatabaseName: "${{ env.DB_NAME }}"
-            UserName: "${{ env.SQL_USER_NAME }}"
-            SqlPackagePath: "${{ env.SQLPACKAGE_DIR }}\\sqlpackage.exe"
-            sql-password-parameter-store: "${{ env.SQL_PASSWORD_PARAMETER_STORE }}"
-            ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
-            ReleaseNumber: "${{ env.RELEASE_NUMBER }}"
-            FileName: "deployscript.sql"
-            TargetServer: ${{ env.TARGET_SERVERS }}
-            PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ env.PUBLISH_PROFILE_FILE_NAME }}"
-            UseMultiSubnetFailover: ${{ env.MULTI_SUBNET_FAILOVER }}
-            SQLPackageDeployProperties: ${{ env.SQL_PACKAGE_DEPLOY_PROPERTIES }}
-            SQLCMDVariables: ${{ env.SQL_CMD_VARIABLES }}
-            SQLPackageParameters: ${{ env.SQL_PACKAGE_PARAMETERS }}
-            
-        - name: Upload DACPAC Deploy Report and Deploy Script as Artifact
-          uses: actions/upload-artifact@v4
-          if: ${{ env.ADD_ARTIFACTS_TO_RELEASE }} == 'true'
-          with:
-            name: DACPAC Deploy Report and Deploy Script
-            path: ${{ github.workspace }}/dacpacs
-
-        - name: Get Artifacts ID
-          id: get-artifact-id
-          if: ${{ env.ADD_ARTIFACTS_TO_RELEASE }} == 'true'
-          shell: powershell
-          run: |
-            $artifactName = "DACPAC Deploy Report and Deploy Script"
-            $headers = @{
-              Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"
-              Accept        = "application/vnd.github+json"
-            }
-
-            $url = "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-
-            Write-Host "Calling: $url"
-            $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing
-            $json = $response.Content | ConvertFrom-Json
-
-            $artifact = $json.artifacts | Where-Object { $_.name -eq $artifactName }
-
-            if ($null -eq $artifact) {
-              Write-Error "Artifact '$artifactName' not found."
-              exit 1
-            }
-            $artifactId = $artifact.id
-            Write-Host "Found artifact ID: $artifactId"
-
-            # Output to GitHub Actions
-            "ARTIFACT_ID=$artifactId" >> $env:GITHUB_ENV
-
-        - name: Delete a New SQL User.
-          id: delete-user
-          uses: ./.github/actions/invoke-sql-actions
-          with:
-            sql-password-parameter-store: ${{ env.SQL_PASSWORD_PARAMETER_STORE }}
-            db-name: ${{ env.DB_NAME }}
-            sql-user-name: ${{ env.SQL_USER_NAME }}
-            sql-activity: 'delete-user'
-            destination-path: 'C:\\Temp\\GlobalTaxMapperDB'
-            aws-region: ${{ env.AWS_REGION }}
-
-
-        - name: Send Slack Notification
-          shell: powershell
-          run: |
-            ./od-gha-files/send-slack-notification.ps1 `
-              -Channel '${{ env.SLACK_CHANNEL }}' `
-              -Username 'GitHub Actions Bot' `
-              -HookUrl '${{ env.SLACK_WEBHOOK_URL }}' `
-              -DeploymentError '' `
-              -ProjectName '${{ github.event.repository.name }}' `
-              -ReleaseNumber '${{ github.run_number }}' `
-              -EnvironmentName 'test' `
-              -TargetRoles '' `
-              -TenantName '${{ github.event.inputs.tenant }}' `
-              -DeploymentLink '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' `
-              -ProjectLink '${{ github.server_url }}/${{ github.repository }}' `
-              -ReleaseLink '${{ github.server_url }}/${{ github.repository }}/releases'
-
-
-        # - name: Testing the Network Connectivity
-        #   run: |
-        #       Test-NetConnection -ComputerName GSQN-C7HQGH.uat.aws.abc.com -Port 1433
-
-        # - name: Download and install ODBC Driver 17
-        #   run: |
-        #     Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2307162" -OutFile "C:\Temp\msodbcsql.msi"
-        #     Start-Process msiexec.exe -Wait -ArgumentList '/i C:\Temp\msodbcsql.msi /quiet /norestart IACCEPTMSODBCSQLLICENSETERMS=YES'
-        # - name: Download and install classic SQLCMD with exit code check
-        #   run: |
-        #     choco install sqlcmd -y
-        # - name: Test SQL Server connection and list databases
-        #   env:
-        #     DB_USER: ${{ secrets.T_DB_USER }}
-        #     DB_PASS: ${{ secrets.T_DB_PASS }}
-        #   run: |
-        #     $output = sqlcmd -S "GSQN-C7HQGH.uat.aws.abc.com" -U $env:DB_USER -P $env:DB_PASS -Q "SELECT name FROM sys.databases"
-        #     if ($LASTEXITCODE -eq 0) {
-        #       Write-Host "Connection successful. Databases:"
-        #       Write-Host $output
-        #     } else {
-        #       Write-Host " Failed to connect to SQL Server. Exit Code: $LASTEXITCODE"
-        #       exit $LASTEXITCODE
-        #     }
+      - name: Call action with SQL Server Authentication
+        uses: ./paassql-pipelines/validate-create-sql-user
+        with:
+          destination-path: 'C:\temp\sql-scripts'
+          aws-region: 'us-east-1'
+          sql-password-parameter-store: '/test/sql/password'
+          db-name: 'TestDatabase'
+          sql-user-name: 'TestUser'
+          username: 'DOMAIN\testuser'
+          needs-windows-authentication: false
