@@ -1,111 +1,134 @@
-name: Test Validate Create SQL User
+name: Test Download Package Action
 
 on:
   pull_request:
     paths:
-      - 'paassql-pipelines/validate-create-sql-user/**'
-      - '.github/workflows/test-validate-create-sql-user.yml'
+      - 'paassql-pipelines/download-package-and-contributor-package/**'
+      - '.github/workflows/test-download-package-and-contributor-package.yaml'
 
 permissions:
   contents: read
 
+env:
+  TEST_PACKAGE: "TestPackage.1.0.0.nupkg"  # Replace with real test package
+  ARTIFACTORY_URL: "https://your-artifactory.example.com"  # Replace with test URL
+
 jobs:
-  success-test-windows:
+  success-test:
+    runs-on: [ self-hosted, windows, runners-us-east-1 ]
+    steps:
+    - name: Checkout action
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          paassql-pipelines/download-package-and-contributor-package
+          .github
+
+    - name: Create temp directories
+      shell: powershell
+      run: |
+        $tempDir = "C:\pkg-test-$(Get-Date -Format 'yyyyMMdd')"
+        mkdir "$tempDir\download", "$tempDir\extract" -Force | Out-Null
+        echo "DL_PATH=$tempDir\download" >> $env:GITHUB_ENV
+        echo "EXTRACT_PATH=$tempDir\extract" >> $env:GITHUB_ENV
+
+    - name: Run download action
+      uses: ./paassql-pipelines/download-package-and-contributor-package
+      with:
+        nuget-pkg-download-path: ${{ env.DL_PATH }}
+        nuget-pkg-extract-path: ${{ env.EXTRACT_PATH }}
+        package-name: ${{ env.TEST_PACKAGE }}
+        webrequest-uri: ${{ env.ARTIFACTORY_URL }}
+
+    - name: Verify download
+      shell: powershell
+      run: |
+        if (-not (Test-Path "$env:DL_PATH\$env:TEST_PACKAGE")) {
+          Write-Error "Package was not downloaded"
+          exit 1
+        }
+        Write-Host "✓ Package downloaded successfully"
+
+    - name: Verify extraction
+      shell: powershell
+      run: |
+        if (-not (Get-ChildItem "$env:EXTRACT_PATH" -File -Recurse)) {
+          Write-Error "No files were extracted"
+          exit 1
+        }
+        Write-Host "✓ Files extracted successfully"
+
+    - name: Cleanup
+      if: always()
+      shell: powershell
+      run: Remove-Item -Path "C:\pkg-test-*" -Recurse -Force -ErrorAction SilentlyContinue
+
+  input-validation:
+    runs-on: [ self-hosted, windows, runners-us-east-1 ]
+    strategy:
+      matrix:
+        missing_input: [
+          'nuget-pkg-download-path',
+          'nuget-pkg-extract-path',
+          'package-name',
+          'webrequest-uri'
+        ]
+    steps:
+    - name: Checkout action
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          paassql-pipelines/download-package-and-contributor-package
+          .github
+
+    - name: Test missing [${{ matrix.missing_input }}]
+      id: validation-test
+      uses: ./paassql-pipelines/download-package-and-contributor-package
+      with:
+        nuget-pkg-download-path: ${{ matrix.missing_input != 'nuget-pkg-download-path' && 'C:\\valid' || '' }}
+        nuget-pkg-extract-path: ${{ matrix.missing_input != 'nuget-pkg-extract-path' && 'C:\\valid' || '' }}
+        package-name: ${{ matrix.missing_input != 'package-name' && 'valid.pkg' || '' }}
+        webrequest-uri: ${{ matrix.missing_input != 'webrequest-uri' && 'https://valid.url' || '' }}
+      continue-on-error: true
+
+    - name: Verify failure
+      if: ${{ !cancelled() }}
+      shell: powershell
+      run: |
+        if (${{ steps.validation-test.outcome }} -ne 'failure') {
+          Write-Error "Action should have failed with missing ${{ matrix.missing_input }}"
+          exit 1
+        }
+        Write-Host "✓ Correctly failed with missing ${{ matrix.missing_input }}"
+
+
+###################
+
+  failure-test:
+    name: Failure test with missing inputs
+    needs: success-test
     environment: test
-    runs-on: [self-hosted, windows, runners-us-east-1]
+    runs-on: [self-hosted, windows, x64, runners-us-east-1]
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Call validate-create-sql-user action with valid inputs
-        uses: ./paassql-pipelines/validate-create-sql-user
-        with:
-          destination-path: 'C:\temp\sql-scripts'
-          aws-region: 'us-east-1'
-          sql-password-parameter-store: '/test/sql/password'
-          db-name: 'TestDatabase'
-          sql-user-name: 'TestUser'
-          username: 'DOMAIN\testuser'
-          needs-windows-authentication: true
-
-  failure-test-missing-required-inputs:
-    environment: test
-    runs-on: [self-hosted, windows, runners-us-east-1]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Call action with missing destination-path
-        id: missing-destination-path
-        uses: ./paassql-pipelines/validate-create-sql-user
-        with:
-          aws-region: 'us-east-1'
-          sql-password-parameter-store: '/test/sql/password'
-          db-name: 'TestDatabase'
-          sql-user-name: 'TestUser'
-          username: 'DOMAIN\testuser'
+      - name: Run download-package-and-contributor-package without required inputs
+        id: run-failure
+        uses: ./paassql-pipelines/download-package-and-contributor-package
         continue-on-error: true
+        with:
+          nuget-pkg-download-path: ''
+          nuget-pkg-extract-path: ''
+          package-name: ''
+          webrequest-uri: ''
 
-      - name: Check missing destination-path step failed
+      - name: Verify the action failed as expected
         if: ${{ !cancelled() }}
+        shell: pwsh
         run: |
-          if ("${{ steps.missing-destination-path.outcome }}" -ne "failure") {
-            Write-Host "Action with missing destination-path should have failed"
+          if ("${{ steps.run-failure.outcome }}" -ne "failure") {
+            Write-Host "Expected the action to fail due to missing inputs."
             exit 1
           }
-
-      - name: Call action with missing aws-region
-        id: missing-aws-region
-        uses: ./paassql-pipelines/validate-create-sql-user
-        with:
-          destination-path: 'C:\temp\sql-scripts'
-          sql-password-parameter-store: '/test/sql/password'
-          db-name: 'TestDatabase'
-          sql-user-name: 'TestUser'
-          username: 'DOMAIN\testuser'
-        continue-on-error: true
-
-      - name: Check missing aws-region step failed
-        if: ${{ !cancelled() }}
-        run: |
-          if ("${{ steps.missing-aws-region.outcome }}" -ne "failure") {
-            Write-Host "Action with missing aws-region should have failed"
-            exit 1
-          }
-
-      - name: Call action with missing sql-password-parameter-store
-        id: missing-sql-password
-        uses: ./paassql-pipelines/validate-create-sql-user
-        with:
-          destination-path: 'C:\temp\sql-scripts'
-          aws-region: 'us-east-1'
-          db-name: 'TestDatabase'
-          sql-user-name: 'TestUser'
-          username: 'DOMAIN\testuser'
-        continue-on-error: true
-
-      - name: Check missing sql-password-parameter-store step failed
-        if: ${{ !cancelled() }}
-        run: |
-          if ("${{ steps.missing-sql-password.outcome }}" -ne "failure") {
-            Write-Host "Action with missing sql-password-parameter-store should have failed"
-            exit 1
-          }
-
-  failure-test-sql-authentication:
-    environment: test
-    runs-on: [self-hosted, windows, runners-us-east-1]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Call action with SQL Server Authentication
-        uses: ./paassql-pipelines/validate-create-sql-user
-        with:
-          destination-path: 'C:\temp\sql-scripts'
-          aws-region: 'us-east-1'
-          sql-password-parameter-store: '/test/sql/password'
-          db-name: 'TestDatabase'
-          sql-user-name: 'TestUser'
-          username: 'DOMAIN\testuser'
-          needs-windows-authentication: false
