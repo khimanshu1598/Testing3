@@ -13,9 +13,9 @@ permissions:
   actions: read
 
 env:
-  TEST_INSTANCE_ID: "i-00df317f5ef6af916"  # Replace with test EC2 instance ID
   TEST_AWS_REGION: "us-west-2"
   DESTINATION_PATH: "C:\\Temp\\Superannuation"
+  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}  # Defined at workflow level
 
 jobs:
   success-test:
@@ -40,7 +40,6 @@ jobs:
     - name: Create test script
       shell: powershell
       run: |
-        # Create dummy script for testing
         $scriptPath = "${{ github.workspace }}/paassql-pipelines/transfer-script/sql-actions.ps1"
         New-Item -ItemType File -Path $scriptPath -Force | Out-Null
         Add-Content -Path $scriptPath -Value "# Test script content"
@@ -49,7 +48,7 @@ jobs:
     - name: Run transfer action
       uses: ./paassql-pipelines/transfer-script
       env:
-        MATRIX_INSTANCE_LIST: '[{"instance":"${{ env.TEST_INSTANCE_ID }}","dbServerName":"test-db","role":"test-role"}]'
+        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
       with:
         destination-path: ${{ env.DESTINATION_PATH }}
         aws-region: ${{ env.TEST_AWS_REGION }}
@@ -80,7 +79,7 @@ jobs:
       id: validation-test
       uses: ./paassql-pipelines/transfer-script
       env:
-        MATRIX_INSTANCE_LIST: '[{"instance":"i-dummy","dbServerName":"test-db","role":"test-role"}]'
+        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
       with:
         destination-path: ${{ matrix.missing_input != 'destination-path' && env.DESTINATION_PATH || '' }}
         aws-region: ${{ matrix.missing_input != 'aws-region' && env.TEST_AWS_REGION || '' }}
@@ -89,9 +88,7 @@ jobs:
     - name: Verify failure
       if: ${{ !cancelled() && steps.validation-test.outcome != 'failure' }}
       shell: powershell
-      run: |
-        Write-Error "Action should have failed with missing ${{ matrix.missing_input }}"
-        exit 1
+      run: exit 1
 
   script-validation:
     runs-on: [self-hosted, windows, runners-us-west-2]
@@ -112,17 +109,16 @@ jobs:
         target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
-    - name: Delete script file to simulate missing script
+    - name: Delete script file
       shell: powershell
       run: |
-        $scriptPath = "${{ github.workspace }}/paassql-pipelines/transfer-script/sql-actions.ps1"
-        if (Test-Path $scriptPath) { Remove-Item $scriptPath -Force }
+        Remove-Item "${{ github.workspace }}/paassql-pipelines/transfer-script/sql-actions.ps1" -Force -ErrorAction SilentlyContinue
 
     - name: Verify script validation fails
       id: script-test
       uses: ./paassql-pipelines/transfer-script
       env:
-        MATRIX_INSTANCE_LIST: '[{"instance":"i-dummy","dbServerName":"test-db","role":"test-role"}]'
+        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
       with:
         destination-path: ${{ env.DESTINATION_PATH }}
         aws-region: ${{ env.TEST_AWS_REGION }}
@@ -131,6 +127,4 @@ jobs:
     - name: Check failure
       if: ${{ !cancelled() && steps.script-test.outcome != 'failure' }}
       shell: powershell
-      run: |
-        Write-Error "Action should have failed with missing script file"
-        exit 1
+      run: exit 1
