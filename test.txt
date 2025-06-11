@@ -1,64 +1,112 @@
-name: Test Generate and Store Password
+name: Test Transfer Script Action
 
 on:
   pull_request:
     paths:
-      - 'paassql-pipelines/generate-password/**'
-      - '.github/workflows/test-generate-password.yml'
+      - 'paassql-pipelines/transfer-script/**'
+      - '.github/workflows/test-transfer-script.yaml'
 
 permissions:
   contents: read
 
+env:
+  TEST_INSTANCE_ID: "i-1234567890abcdef0"  # Replace with test EC2 instance ID
+  TEST_AWS_REGION: "us-east-1"            # Replace with test region
+
 jobs:
   success-test:
-    name: Success test (Windows only)
+    runs-on: [ self-hosted, windows, runners-us-east-1 ]
     environment: test
-    runs-on: [self-hosted, windows, x64, runners-us-east-1]
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout action
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          paassql-pipelines/transfer-script
+          .github
 
-      - name: Run generate-password action (Success)
-        id: generate
-        uses: ./paassql-pipelines/generate-password
-        with:
-          sql-password-parameter-store: '/test/password/auto-generated'
-          aws-region: 'us-east-1'
+    - name: Create test script
+      shell: powershell
+      run: |
+        # Create dummy script for testing
+        $scriptPath = "${{ github.workspace }}/paassql-pipelines/transfer-script/sql-actions.ps1"
+        New-Item -ItemType File -Path $scriptPath -Force | Out-Null
+        Add-Content -Path $scriptPath -Value "# Test script content"
+        Write-Host "Created test script at $scriptPath"
 
-      - name: ✅ Verify output values
-        shell: pwsh
-        run: |
-          if (-not "${{ steps.generate.outputs.generated-password }}") {
-            Write-Error "❌ Missing generated password output."
-            exit 1
-          }
-          if (-not "${{ steps.generate.outputs.parameter-path }}") {
-            Write-Error "❌ Missing parameter path output."
-            exit 1
-          }
-          Write-Host "✅ Password generated and stored at: ${{ steps.generate.outputs.parameter-path }}"
+    - name: Run transfer action
+      uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: '[{"instance":"${{ env.TEST_INSTANCE_ID }}","dbServerName":"test-db","role":"test-role"}]'
+      with:
+        destination-path: "C:\\temp\\scripts"
+        aws-region: ${{ env.TEST_AWS_REGION }}
 
-  failure-test:
-    name: Failure test with missing inputs
-    needs: success-test
-    environment: test
-    runs-on: [self-hosted, windows, x64, runners-us-east-1]
-
+  input-validation:
+    runs-on: [ self-hosted, windows, runners-us-east-1 ]
+    strategy:
+      matrix:
+        missing_input: ['destination-path', 'aws-region']
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout action
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          paassql-pipelines/transfer-script
+          .github
 
-      - name: Run generate-password with missing inputs
-        id: run-failure
-        uses: ./paassql-pipelines/generate-password
-        continue-on-error: true
-        with:
-          sql-password-parameter-store: ''
-          aws-region: ''
+    - name: Test missing [${{ matrix.missing_input }}]
+      id: validation-test
+      uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: '[{"instance":"i-dummy","dbServerName":"test-db","role":"test-role"}]'
+      with:
+        destination-path: ${{ matrix.missing_input != 'destination-path' && 'C:\\valid' || '' }}
+        aws-region: ${{ matrix.missing_input != 'aws-region' && 'us-east-1' || '' }}
+      continue-on-error: true
 
-      - name: ✅ Verify failure due to missing inputs
-        if: ${{ steps.run-failure.conclusion == 'failure' && !cancelled() }}
-        shell: pwsh
-        run: |
-          Write-Host "✅ Action failed as expected due to missing required inputs"
+    - name: Verify failure
+      if: ${{ !cancelled() }}
+      shell: powershell
+      run: |
+        if (${{ steps.validation-test.outcome }} -ne 'failure') {
+          Write-Error "Action should have failed with missing ${{ matrix.missing_input }}"
+          exit 1
+        }
+        Write-Host "✓ Correctly failed with missing ${{ matrix.missing_input }}"
+
+  script-validation:
+    runs-on: [ self-hosted, windows, runners-us-east-1 ]
+    steps:
+    - name: Checkout action
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          paassql-pipelines/transfer-script
+          .github
+
+    - name: Delete script file to simulate missing script
+      shell: powershell
+      run: |
+        $scriptPath = "${{ github.workspace }}/paassql-pipelines/transfer-script/sql-actions.ps1"
+        if (Test-Path $scriptPath) { Remove-Item $scriptPath }
+
+    - name: Verify script validation fails
+      id: script-test
+      uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: '[{"instance":"i-dummy","dbServerName":"test-db","role":"test-role"}]'
+      with:
+        destination-path: "C:\\temp\\scripts"
+        aws-region: "us-east-1"
+      continue-on-error: true
+
+    - name: Check failure
+      if: ${{ !cancelled() }}
+      shell: powershell
+      run: |
+        if (${{ steps.script-test.outcome }} -ne 'failure') {
+          Write-Error "Action should have failed with missing script file"
+          exit 1
+        }
+        Write-Host "✓ Correctly failed with missing script file"
