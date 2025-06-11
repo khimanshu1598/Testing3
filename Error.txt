@@ -1,114 +1,31 @@
-paassql-pipelines/download-package-and-contributor-package/action.yaml
+paassql-pipelines/oidc-and-sqlpackage-installation/action.yaml
 
-name: 'Deploy and extract packages from JFrog artifactory'
-description: 'Downloads a NuGet .nupkg package from JFrog Artifactory and extracts it to a target directory for DACPAC deployments.'
-
-inputs:
-  nuget-pkg-download-path:
-    description: 'Download path where the NuGet package will be saved.'
-    required: true
-  nuget-pkg-extract-path:
-    description: 'Path where the contents of the NuGet package will be extracted.'
-    required: true
-  package-name:
-    description: 'Name of the .nupkg file to download.'
-    required: true
-  webrequest-uri:
-    description: 'Full or base URL of the Artifactory server.'
-    required: true
+name: 'Download Packages and dependencies'
+description: 'Download utility files and dependencies (jq, SqlPackage) required for DACPAC deployment using OIDC-authenticated AWS access.'
 
 runs:
   using: "composite"
   steps:
-  - name: Validate inputs
+  - name: Download and install SqlPackage
     shell: powershell
     run: |
-      if (-not "${{ inputs.nuget-pkg-download-path }}") {
-        Write-Error "Input 'nuget-pkg-download-path' is required but not provided."
-        exit 1
-      }
-      if (-not "${{ inputs.nuget-pkg-extract-path }}") {
-        Write-Error "Input 'nuget-pkg-extract-path' is required but not provided."
-        exit 1
-      }
-      if (-not "${{ inputs.package-name }}") {
-        Write-Error "Input 'package-name' is required but not provided."
-        exit 1
-      }
-      if (-not "${{ inputs.webrequest-uri }}") {
-        Write-Error "Input 'webrequest-uri' is required but not provided."
-        exit 1
+      $zipUrl = "https://aka.ms/sqlpackage-windows"
+      $downloadPath = "${{ github.workspace }}\sqlpackage.zip"
+      $extractPath = "${{ github.workspace }}\sqlpackage"
+
+      Write-Host "Installing SqlPackage into: $extractPath"
+
+      # Download SqlPackage ZIP
+      Invoke-WebRequest -Uri $zipUrl -OutFile $downloadPath -UseBasicParsing
+
+      # Clean previous install
+      if (Test-Path $extractPath) {
+        Remove-Item -Path $extractPath -Recurse -Force
       }
 
-  - name: Clean or create download folder
-    shell: powershell
-    run: |
-      if (Test-Path -Path "${{ inputs.nuget-pkg-download-path }}") {
-        Write-Host "🧹 Cleaning existing download folder..."
-        Remove-Item -Path "${{ inputs.nuget-pkg-download-path }}\*" -Recurse -Force
-      } else {
-        Write-Host "Creating new download folder..."
-        New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-download-path }}" -Force
-      }
+      # Extract and cleanup
+      Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
+      Remove-Item $downloadPath -Force
 
-  - name: Download NuGet package from Artifactory
-    shell: powershell
-    run: |
-      $url = "${{ inputs.webrequest-uri }}\${{ inputs.package-name }}"
-      $outputFile = "${{ inputs.nuget-pkg-download-path }}\${{ inputs.package-name }}"
-
-      Write-Host "Downloading package from $url..."
-      Invoke-WebRequest -Uri $url -OutFile $outputFile
-
-      if (-not (Test-Path $outputFile)) {
-        Write-Error "Failed to download the package."
-        exit 1
-      }
-
-      Write-Host "Download complete: $outputFile"
-
-  - name: Clean or create extract folder
-    shell: powershell
-    run: |
-      if (Test-Path -Path "${{ inputs.nuget-pkg-extract-path }}") {
-        Write-Host "Cleaning existing extraction folder..."
-        Remove-Item -Path "${{ inputs.nuget-pkg-extract-path }}\*" -Recurse -Force
-      } else {
-        Write-Host "Creating new extraction folder..."
-        New-Item -ItemType Directory -Path "${{ inputs.nuget-pkg-extract-path }}" -Force
-      }
-
-  - name: Extract .nupkg file contents
-    shell: powershell
-    run: |
-      $nupkg = Get-ChildItem -Path "${{ inputs.nuget-pkg-download-path }}" -Filter *.nupkg | Select-Object -First 1
-
-      if (-not $nupkg) {
-        Write-Error "No .nupkg file found to extract."
-        exit 1
-      }
-
-      Add-Type -AssemblyName System.IO.Compression.FileSystem
-      Add-Type -AssemblyName System.IO.Compression
-
-      $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
-
-      foreach ($entry in $zip.Entries) {
-        $destination = Join-Path "${{ inputs.nuget-pkg-extract-path }}" $entry.FullName
-        $dir = [System.IO.Path]::GetDirectoryName($destination)
-        if (-not (Test-Path $dir)) {
-          New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        }
-        if (![string]::IsNullOrWhiteSpace($entry.Name)) {
-          [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $true)
-        }
-      }
-
-      $zip.Dispose()
-      Write-Host "Extracted contents to ${{ inputs.nuget-pkg-extract-path }}"
-
-  - name: List extracted files (debug)
-    shell: bash
-    run: |
-      echo "Contents of extraction directory:"
-      ls -l "${{ inputs.nuget-pkg-extract-path }}"
+      # Set path for use in downstream steps
+      echo "SQLPACKAGE_PATH=$extractPath" >> $env:GITHUB_ENV
