@@ -1,10 +1,10 @@
-name: Test Download and Extract Package
+name: Test OIDC and SqlPackage Installation
 
 on:
   pull_request:
     paths:
-      - 'paassql-pipelines/download-package-and-contributor-package/**'
-      - '.github/workflows/test-download-package-and-contributor-package.yml'
+      - 'paassql-pipelines/oidc-and-sqlpackage-installation/**'
+      - '.github/workflows/test-oidc-and-sqlpackage-installation.yml'
 
 permissions:
   contents: read
@@ -19,92 +19,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set paths
-        id: set-paths
+      - name: Run oidc-and-sqlpackage-installation
+        uses: ./paassql-pipelines/oidc-and-sqlpackage-installation
+
+      - name: ✅ Verify SqlPackage was extracted
         shell: pwsh
         run: |
-          echo "download_path=C:\temp\download" >> $env:GITHUB_ENV
-          echo "extract_path=C:\temp\extracted" >> $env:GITHUB_ENV
-
-      - name: Run download-package-and-contributor-package (Success path)
-        uses: ./paassql-pipelines/download-package-and-contributor-package
-        with:
-          nuget-pkg-download-path: ${{ env.download_path }}
-          nuget-pkg-extract-path: ${{ env.extract_path }}
-          package-name: 'Test.Package.1.0.0.nupkg'
-          webrequest-uri: 'https://jfrog.example.com/artifactory/api/nuget/nuget-local'
-
-      - name: ✅ Verify .nupkg file downloaded
-        shell: pwsh
-        run: |
-          $nupkg = Get-ChildItem -Path "${{ env.download_path }}" -Filter *.nupkg | Select-Object -First 1
-          if (-not $nupkg) {
-            Write-Error "❌ No .nupkg file was downloaded to '${{ env.download_path }}'."
-            exit 1
-          }
-          Write-Host "✅ Found downloaded package: $($nupkg.FullName)"
-
-      - name: ✅ Verify extraction contains files
-        shell: pwsh
-        run: |
-          $files = Get-ChildItem -Path "${{ env.extract_path }}" -Recurse
-          if (-not $files) {
-            Write-Error "❌ No files found in extracted path '${{ env.extract_path }}'."
-            exit 1
-          }
-          Write-Host "✅ Extracted files:"
-          $files | ForEach-Object { Write-Host $_.FullName }
-
-  failure-test:
-    name: Failure test with missing inputs
-    needs: success-test
-    environment: test
-    runs-on: [self-hosted, windows, x64, runners-us-east-1]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run download-package-and-contributor-package without required inputs
-        id: run-failure
-        uses: ./paassql-pipelines/download-package-and-contributor-package
-        continue-on-error: true
-        with:
-          nuget-pkg-download-path: ''
-          nuget-pkg-extract-path: ''
-          package-name: ''
-          webrequest-uri: ''
-
-      - name: Verify the action failed as expected
-        if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          if ("${{ steps.run-failure.outcome }}" -ne "failure") {
-            Write-Host "Expected the action to fail due to missing inputs."
+          if (-not $env:SQLPACKAGE_PATH) {
+            Write-Error "❌ SQLPACKAGE_PATH was not set in the environment."
             exit 1
           }
 
+          if (-not (Test-Path -Path $env:SQLPACKAGE_PATH)) {
+            Write-Error "❌ SqlPackage path '$env:SQLPACKAGE_PATH' does not exist."
+            exit 1
+          }
 
-Prepare all required actions
-Run ./paassql-pipelines/download-package-and-contributor-package
-  
-Run if (-not "") {
-  
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-C:\actions-runner\_work\_temp\ec4d8cd0-a8af-4c13-8581-9f7a99662543.ps1 : Input 'nuget-pkg-download-path' is required 
-but not provided.
-At line:1 char:1
-+ . 'C:\actions-runner\_work\_temp\ec4d8cd0-a8af-4c13-8581-9f7a99662543 ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
-    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,ec4d8cd0-a8af-4c13-8581-9f7a99662543.p 
-   s1
- 
-Error: Process completed with exit code 1.
+          $exePath = Join-Path $env:SQLPACKAGE_PATH 'sqlpackage.exe'
+          if (-not (Test-Path -Path $exePath)) {
+            Write-Error "❌ sqlpackage.exe not found in extracted directory."
+            exit 1
+          }
 
-
-Run if ($LASTEXITCODE -eq 0) {
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-Action failed as expected with exit code: .
+          Write-Host "✅ SqlPackage installation verified at: $exePath"
+          & $exePath /? | Out-Host  # Optional: Print sqlpackage help to confirm it's working
