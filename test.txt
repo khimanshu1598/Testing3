@@ -104,8 +104,7 @@ At line:1 char:1
 Error: Process completed with exit code 1.
 
 
-
-Run if ("failure" -ne "failure") {
-  
+Run if ($LASTEXITCODE -eq 0) {
 Refreshing environment variables from the registry for powershell.exe. Please wait...
 Finished
+Action failed as expected with exit code: .
