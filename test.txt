@@ -14,8 +14,8 @@ permissions:
 
 env:
   TEST_INSTANCE_ID: "i-00df317f5ef6af916"  # Replace with test EC2 instance ID
-  TEST_AWS_REGION: "us-west-2"  
-  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}          # Replace with test region
+  TEST_AWS_REGION: "us-west-2"
+  DESTINATION_PATH: "C:\\Temp\\Superannuation"
 
 jobs:
   success-test:
@@ -35,7 +35,7 @@ jobs:
       with:
         oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
         target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ vars.AWS_REGION }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
 
     - name: Create test script
       shell: powershell
@@ -48,8 +48,10 @@ jobs:
 
     - name: Run transfer action
       uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: '[{"instance":"${{ env.TEST_INSTANCE_ID }}","dbServerName":"test-db","role":"test-role"}]'
       with:
-        destination-path: 'C:\\Temp\\Superannuation'
+        destination-path: ${{ env.DESTINATION_PATH }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
   input-validation:
@@ -65,30 +67,31 @@ jobs:
         sparse-checkout: |
           paassql-pipelines/transfer-script
           .github
+
     - name: Assume OIDC role
       id: assume_oidc_role
       uses: xero-internal/github-actions/aws-assume-oidc@main
       with:
         oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
         target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ vars.AWS_REGION }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
+
     - name: Test missing [${{ matrix.missing_input }}]
       id: validation-test
       uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: '[{"instance":"i-dummy","dbServerName":"test-db","role":"test-role"}]'
       with:
-        destination-path: ${{ matrix.missing_input != 'destination-path' && 'C:\\valid' || '' }}
-        aws-region: ${{ matrix.missing_input != 'aws-region' && 'us-west-2' || '' }}
+        destination-path: ${{ matrix.missing_input != 'destination-path' && env.DESTINATION_PATH || '' }}
+        aws-region: ${{ matrix.missing_input != 'aws-region' && env.TEST_AWS_REGION || '' }}
       continue-on-error: true
 
     - name: Verify failure
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && steps.validation-test.outcome != 'failure' }}
       shell: powershell
       run: |
-        if (${{ steps.validation-test.outcome }} -ne 'failure') {
-          Write-Error "Action should have failed with missing ${{ matrix.missing_input }}"
-          exit 1
-        }
-        Write-Host "✓ Correctly failed with missing ${{ matrix.missing_input }}"
+        Write-Error "Action should have failed with missing ${{ matrix.missing_input }}"
+        exit 1
 
   script-validation:
     runs-on: [self-hosted, windows, runners-us-west-2]
@@ -107,12 +110,13 @@ jobs:
       with:
         oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
         target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ vars.AWS_REGION }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
+
     - name: Delete script file to simulate missing script
       shell: powershell
       run: |
         $scriptPath = "${{ github.workspace }}/paassql-pipelines/transfer-script/sql-actions.ps1"
-        if (Test-Path $scriptPath) { Remove-Item $scriptPath }
+        if (Test-Path $scriptPath) { Remove-Item $scriptPath -Force }
 
     - name: Verify script validation fails
       id: script-test
@@ -120,43 +124,13 @@ jobs:
       env:
         MATRIX_INSTANCE_LIST: '[{"instance":"i-dummy","dbServerName":"test-db","role":"test-role"}]'
       with:
-        destination-path: 'C:\\Temp\\Superannuation'
-        aws-region: 'us-west-2'
+        destination-path: ${{ env.DESTINATION_PATH }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
       continue-on-error: true
 
     - name: Check failure
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && steps.script-test.outcome != 'failure' }}
       shell: powershell
       run: |
-        if (${{ steps.script-test.outcome }} -ne 'failure') {
-          Write-Error "Action should have failed with missing script file"
-          exit 1
-        }
-        Write-Host "Correctly failed with missing script file"
-
-
-
-# inout-validation (destination-path)Error: -
-Run xero-internal/github-actions/aws-assume-oidc@main
-Run xero-internal/github-actions/get-custom-repo-property@v1
-Run actions/github-script@v7
-Searching for property "uuid" in dacpac-actions...
-Property "uuid" found with value: g4a17sGsipvRqrMG99qTRr.
-Run actions/github-script@v7
-Error: One or both of the inputs, 'oidc-role-to-assume' & 'target-role-to-assume' did not contain a value
-Input information
-Run actions/github-script@v7
-Error: Assume role step failed. For troubleshooting, see:  https://xero.atlassian.net/wiki/x/vweQ2j4
-
-
-Run if (skipped -ne 'failure') {
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-At C:\actions-runner\_work\_temp\6e2dbc12-22ca-4899-85f3-6e68ede23e06.ps1:6 char:63
-+ Write-Host "âœ“ Correctly failed with missing destination-path"
-+                                                               ~
-The string is missing the terminator: ".
-    + CategoryInfo          : ParserError: (:) [], ParseException
-    + FullyQualifiedErrorId : TerminatorExpectedAtEndOfString
- 
-Error: Process completed with exit code 1.
+        Write-Error "Action should have failed with missing script file"
+        exit 1
