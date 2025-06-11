@@ -83,3 +83,29 @@ jobs:
             Write-Host "Expected the action to fail due to missing inputs."
             exit 1
           }
+
+
+Prepare all required actions
+Run ./paassql-pipelines/download-package-and-contributor-package
+  
+Run if (-not "") {
+  
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+C:\actions-runner\_work\_temp\ec4d8cd0-a8af-4c13-8581-9f7a99662543.ps1 : Input 'nuget-pkg-download-path' is required 
+but not provided.
+At line:1 char:1
++ . 'C:\actions-runner\_work\_temp\ec4d8cd0-a8af-4c13-8581-9f7a99662543 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,ec4d8cd0-a8af-4c13-8581-9f7a99662543.p 
+   s1
+ 
+Error: Process completed with exit code 1.
+
+
+
+Run if ("failure" -ne "failure") {
+  
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
