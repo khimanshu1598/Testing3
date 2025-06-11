@@ -1,108 +1,59 @@
-name: Test Download Package Action
+name: Test Download and Extract Package
 
 on:
   pull_request:
     paths:
       - 'paassql-pipelines/download-package-and-contributor-package/**'
-      - '.github/workflows/test-download-package-and-contributor-package.yaml'
+      - '.github/workflows/test-download-package-and-contributor-package.yml'
 
 permissions:
   contents: read
 
-env:
-  TEST_PACKAGE: "TestPackage.1.0.0.nupkg"  # Replace with real test package
-  ARTIFACTORY_URL: "https://your-artifactory.example.com"  # Replace with test URL
-
 jobs:
   success-test:
-    runs-on: [ self-hosted, windows, runners-us-east-1 ]
+    name: Success test (Windows only)
+    environment: test
+    runs-on: [self-hosted, windows, x64, runners-us-east-1]
+
     steps:
-    - name: Checkout action
-      uses: actions/checkout@v4
-      with:
-        sparse-checkout: |
-          paassql-pipelines/download-package-and-contributor-package
-          .github
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Create temp directories
-      shell: powershell
-      run: |
-        $tempDir = "C:\pkg-test-$(Get-Date -Format 'yyyyMMdd')"
-        mkdir "$tempDir\download", "$tempDir\extract" -Force | Out-Null
-        echo "DL_PATH=$tempDir\download" >> $env:GITHUB_ENV
-        echo "EXTRACT_PATH=$tempDir\extract" >> $env:GITHUB_ENV
+      - name: Set paths
+        id: set-paths
+        shell: pwsh
+        run: |
+          echo "download_path=C:\temp\download" >> $env:GITHUB_ENV
+          echo "extract_path=C:\temp\extracted" >> $env:GITHUB_ENV
 
-    - name: Run download action
-      uses: ./paassql-pipelines/download-package-and-contributor-package
-      with:
-        nuget-pkg-download-path: ${{ env.DL_PATH }}
-        nuget-pkg-extract-path: ${{ env.EXTRACT_PATH }}
-        package-name: ${{ env.TEST_PACKAGE }}
-        webrequest-uri: ${{ env.ARTIFACTORY_URL }}
+      - name: Run download-package-and-contributor-package (Success path)
+        uses: ./paassql-pipelines/download-package-and-contributor-package
+        with:
+          nuget-pkg-download-path: ${{ env.download_path }}
+          nuget-pkg-extract-path: ${{ env.extract_path }}
+          package-name: 'Test.Package.1.0.0.nupkg'
+          webrequest-uri: 'https://jfrog.example.com/artifactory/api/nuget/nuget-local'
 
-    - name: Verify download
-      shell: powershell
-      run: |
-        if (-not (Test-Path "$env:DL_PATH\$env:TEST_PACKAGE")) {
-          Write-Error "Package was not downloaded"
-          exit 1
-        }
-        Write-Host "✓ Package downloaded successfully"
+      - name: ✅ Verify .nupkg file downloaded
+        shell: pwsh
+        run: |
+          $nupkg = Get-ChildItem -Path "${{ env.download_path }}" -Filter *.nupkg | Select-Object -First 1
+          if (-not $nupkg) {
+            Write-Error "❌ No .nupkg file was downloaded to '${{ env.download_path }}'."
+            exit 1
+          }
+          Write-Host "✅ Found downloaded package: $($nupkg.FullName)"
 
-    - name: Verify extraction
-      shell: powershell
-      run: |
-        if (-not (Get-ChildItem "$env:EXTRACT_PATH" -File -Recurse)) {
-          Write-Error "No files were extracted"
-          exit 1
-        }
-        Write-Host "✓ Files extracted successfully"
-
-    - name: Cleanup
-      if: always()
-      shell: powershell
-      run: Remove-Item -Path "C:\pkg-test-*" -Recurse -Force -ErrorAction SilentlyContinue
-
-  input-validation:
-    runs-on: [ self-hosted, windows, runners-us-east-1 ]
-    strategy:
-      matrix:
-        missing_input: [
-          'nuget-pkg-download-path',
-          'nuget-pkg-extract-path',
-          'package-name',
-          'webrequest-uri'
-        ]
-    steps:
-    - name: Checkout action
-      uses: actions/checkout@v4
-      with:
-        sparse-checkout: |
-          paassql-pipelines/download-package-and-contributor-package
-          .github
-
-    - name: Test missing [${{ matrix.missing_input }}]
-      id: validation-test
-      uses: ./paassql-pipelines/download-package-and-contributor-package
-      with:
-        nuget-pkg-download-path: ${{ matrix.missing_input != 'nuget-pkg-download-path' && 'C:\\valid' || '' }}
-        nuget-pkg-extract-path: ${{ matrix.missing_input != 'nuget-pkg-extract-path' && 'C:\\valid' || '' }}
-        package-name: ${{ matrix.missing_input != 'package-name' && 'valid.pkg' || '' }}
-        webrequest-uri: ${{ matrix.missing_input != 'webrequest-uri' && 'https://valid.url' || '' }}
-      continue-on-error: true
-
-    - name: Verify failure
-      if: ${{ !cancelled() }}
-      shell: powershell
-      run: |
-        if (${{ steps.validation-test.outcome }} -ne 'failure') {
-          Write-Error "Action should have failed with missing ${{ matrix.missing_input }}"
-          exit 1
-        }
-        Write-Host "✓ Correctly failed with missing ${{ matrix.missing_input }}"
-
-
-###################
+      - name: ✅ Verify extraction contains files
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path "${{ env.extract_path }}" -Recurse
+          if (-not $files) {
+            Write-Error "❌ No files found in extracted path '${{ env.extract_path }}'."
+            exit 1
+          }
+          Write-Host "✅ Extracted files:"
+          $files | ForEach-Object { Write-Host $_.FullName }
 
   failure-test:
     name: Failure test with missing inputs
