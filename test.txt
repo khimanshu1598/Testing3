@@ -12,31 +12,15 @@ env:
   MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
 
 jobs:
-  validate-variables:
-    runs-on: ubuntu-latest
-    outputs:
-      vars_valid: ${{ steps.validate.outputs.valid }}
-    steps:
-    - name: Validate required variables
-      id: validate
-      run: |
-        if [ -z "${{ vars.OIDC_ROLE_ARN }}" ] || [ -z "${{ vars.DEPLOYMENT_ROLE_ARN }}" ] || [ -z "${{ vars.MATRIX_INSTANCE_LIST }}" ]; then
-          echo "::error::Missing required variables. Ensure OIDC_ROLE_ARN, DEPLOYMENT_ROLE_ARN, and MATRIX_INSTANCE_LIST are set"
-          echo "valid=false" >> $GITHUB_OUTPUT
-        else
-          echo "valid=true" >> $GITHUB_OUTPUT
-        fi
-
   success-test:
     runs-on: [self-hosted, windows, runners-us-west-2]
     environment: test
-    needs: validate-variables
-    if: needs.validate-variables.outputs.vars_valid == 'true'
     steps:
     - name: Checkout action
       uses: actions/checkout@v4
 
     - name: Assume OIDC role
+      id: assume_role
       uses: xero-internal/github-actions/aws-assume-oidc@main
       with:
         oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
@@ -57,34 +41,103 @@ jobs:
         destination-path: ${{ env.DESTINATION_PATH }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
-  input-validation:
+  validate-destination-path:
     runs-on: [self-hosted, windows, runners-us-west-2]
-    needs: [validate-variables, success-test]
-    if: needs.validate-variables.outputs.vars_valid == 'true'
-    strategy:
-      matrix:
-        missing_input: ['destination-path', 'aws-region']
+    needs: success-test
     steps:
     - name: Checkout action
       uses: actions/checkout@v4
 
     - name: Assume OIDC role
+      id: assume_role
       uses: xero-internal/github-actions/aws-assume-oidc@main
       with:
         oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
         target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
-    - name: Run with missing input
-      id: action-run
+    - name: Test missing destination-path
+      id: action_run
       uses: ./paassql-pipelines/transfer-script
       env:
         MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
       with:
-        destination-path: ${{ matrix.missing_input != 'destination-path' && env.DESTINATION_PATH || '' }}
-        aws-region: ${{ matrix.missing_input != 'aws-region' && env.TEST_AWS_REGION || '' }}
+        destination-path: ""
+        aws-region: ${{ env.TEST_AWS_REGION }}
       continue-on-error: true
 
     - name: Verify failure
-      if: steps.action-run.outcome != 'failure'
-      run: echo "::error::Action should have failed with missing ${{ matrix.missing_input }}" && exit 1
+      if: ${{ !cancelled() && steps.action_run.outcome != 'failure' }}
+      shell: powershell
+      run: |
+        Write-Error "Action should have failed with missing destination-path"
+        exit 1
+
+  validate-aws-region:
+    runs-on: [self-hosted, windows, runners-us-west-2]
+    needs: success-test
+    steps:
+    - name: Checkout action
+      uses: actions/checkout@v4
+
+    - name: Assume OIDC role
+      id: assume_role
+      uses: xero-internal/github-actions/aws-assume-oidc@main
+      with:
+        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
+
+    - name: Test missing aws-region
+      id: action_run
+      uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
+      with:
+        destination-path: ${{ env.DESTINATION_PATH }}
+        aws-region: ""
+      continue-on-error: true
+
+    - name: Verify failure
+      if: ${{ !cancelled() && steps.action_run.outcome != 'failure' }}
+      shell: powershell
+      run: |
+        Write-Error "Action should have failed with missing aws-region"
+        exit 1
+
+  script-validation:
+    runs-on: [self-hosted, windows, runners-us-west-2]
+    needs: [validate-destination-path, validate-aws-region]
+    steps:
+    - name: Checkout action
+      uses: actions/checkout@v4
+
+    - name: Assume OIDC role
+      id: assume_role
+      uses: xero-internal/github-actions/aws-assume-oidc@main
+      with:
+        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
+
+    - name: Delete script file
+      shell: powershell
+      run: |
+        Remove-Item "./paassql-pipelines/transfer-script/sql-actions.ps1" -Force -ErrorAction SilentlyContinue
+
+    - name: Verify script validation fails
+      id: script_test
+      uses: ./paassql-pipelines/transfer-script
+      env:
+        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
+      with:
+        destination-path: ${{ env.DESTINATION_PATH }}
+        aws-region: ${{ env.TEST_AWS_REGION }}
+      continue-on-error: true
+
+    - name: Check failure
+      if: ${{ !cancelled() && steps.script_test.outcome != 'failure' }}
+      shell: powershell
+      run: |
+        Write-Error "Action should have failed with missing script file"
+        exit 1
