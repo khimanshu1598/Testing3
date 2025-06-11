@@ -10,6 +10,14 @@ env:
   TEST_AWS_REGION: "us-west-2"
   DESTINATION_PATH: "C:\\Temp\\Superannuation"
   MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
+  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
+  DEPLOYMENT_ROLE_ARN: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
 
 jobs:
   success-test:
@@ -23,8 +31,8 @@ jobs:
       id: assume_role
       uses: xero-internal/github-actions/aws-assume-oidc@main
       with:
-        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        oidc-role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ env.DEPLOYMENT_ROLE_ARN }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
     - name: Create test script
@@ -75,7 +83,7 @@ jobs:
 
   validate-aws-region:
     runs-on: [self-hosted, windows, runners-us-west-2]
-    needs: success-test
+    needs: validate-destination-path
     steps:
     - name: Checkout action
       uses: actions/checkout@v4
@@ -84,8 +92,8 @@ jobs:
       id: assume_role
       uses: xero-internal/github-actions/aws-assume-oidc@main
       with:
-        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        oidc-role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ env.DEPLOYMENT_ROLE_ARN }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
     - name: Test missing aws-region
@@ -116,8 +124,8 @@ jobs:
       id: assume_role
       uses: xero-internal/github-actions/aws-assume-oidc@main
       with:
-        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        oidc-role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ env.DEPLOYMENT_ROLE_ARN }}
         aws-region: ${{ env.TEST_AWS_REGION }}
 
     - name: Delete script file
