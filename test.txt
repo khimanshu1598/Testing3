@@ -1,10 +1,10 @@
-name: Test OIDC and SqlPackage Installation
+name: Test Generate and Store Password
 
 on:
   pull_request:
     paths:
-      - 'paassql-pipelines/oidc-and-sqlpackage-installation/**'
-      - '.github/workflows/test-oidc-and-sqlpackage-installation.yml'
+      - 'paassql-pipelines/generate-password/**'
+      - '.github/workflows/test-generate-password.yml'
 
 permissions:
   contents: read
@@ -16,30 +16,49 @@ jobs:
     runs-on: [self-hosted, windows, x64, runners-us-east-1]
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Run oidc-and-sqlpackage-installation
-        uses: ./paassql-pipelines/oidc-and-sqlpackage-installation
+      - name: Run generate-password action (Success)
+        id: generate
+        uses: ./paassql-pipelines/generate-password
+        with:
+          sql-password-parameter-store: '/test/password/auto-generated'
+          aws-region: 'us-east-1'
 
-      - name: ✅ Verify SqlPackage was extracted
+      - name: ✅ Verify output values
         shell: pwsh
         run: |
-          if (-not $env:SQLPACKAGE_PATH) {
-            Write-Error "❌ SQLPACKAGE_PATH was not set in the environment."
+          if (-not "${{ steps.generate.outputs.generated-password }}") {
+            Write-Error "❌ Missing generated password output."
             exit 1
           }
-
-          if (-not (Test-Path -Path $env:SQLPACKAGE_PATH)) {
-            Write-Error "❌ SqlPackage path '$env:SQLPACKAGE_PATH' does not exist."
+          if (-not "${{ steps.generate.outputs.parameter-path }}") {
+            Write-Error "❌ Missing parameter path output."
             exit 1
           }
+          Write-Host "✅ Password generated and stored at: ${{ steps.generate.outputs.parameter-path }}"
 
-          $exePath = Join-Path $env:SQLPACKAGE_PATH 'sqlpackage.exe'
-          if (-not (Test-Path -Path $exePath)) {
-            Write-Error "❌ sqlpackage.exe not found in extracted directory."
-            exit 1
-          }
+  failure-test:
+    name: Failure test with missing inputs
+    needs: success-test
+    environment: test
+    runs-on: [self-hosted, windows, x64, runners-us-east-1]
 
-          Write-Host "✅ SqlPackage installation verified at: $exePath"
-          & $exePath /? | Out-Host  # Optional: Print sqlpackage help to confirm it's working
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run generate-password with missing inputs
+        id: run-failure
+        uses: ./paassql-pipelines/generate-password
+        continue-on-error: true
+        with:
+          sql-password-parameter-store: ''
+          aws-region: ''
+
+      - name: ✅ Verify failure due to missing inputs
+        if: ${{ steps.run-failure.conclusion == 'failure' && !cancelled() }}
+        shell: pwsh
+        run: |
+          Write-Host "✅ Action failed as expected due to missing required inputs"
