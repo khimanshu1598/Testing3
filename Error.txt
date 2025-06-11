@@ -1,31 +1,68 @@
-paassql-pipelines/oidc-and-sqlpackage-installation/action.yaml
+paassql-pipelines/generate-password/action.yaml: -
 
-name: 'Download Packages and dependencies'
-description: 'Download utility files and dependencies (jq, SqlPackage) required for DACPAC deployment using OIDC-authenticated AWS access.'
+name: 'Generate and Store Password'
+description: 'Generates a secure 12-character password (3 of each type) and stores it in AWS SSM Parameter Store.'
+
+inputs:
+  sql-password-parameter-store:
+    description: 'Name of the AWS SSM Parameter Store key to store the password'
+    required: true
+  aws-region:
+    description: 'AWS region where the parameter should be stored'
+    required: true
+
+outputs:
+  parameter-path:
+    description: 'SSM parameter path where the password is stored'
+    value: ${{ steps.store.outputs.parameter-path }}
+  generated-password:
+    description: 'The generated password'
+    value: ${{ steps.generate-password.outputs.generated-password }}
 
 runs:
   using: "composite"
   steps:
-  - name: Download and install SqlPackage
+  - name: Validate inputs
     shell: powershell
     run: |
-      $zipUrl = "https://aka.ms/sqlpackage-windows"
-      $downloadPath = "${{ github.workspace }}\sqlpackage.zip"
-      $extractPath = "${{ github.workspace }}\sqlpackage"
-
-      Write-Host "Installing SqlPackage into: $extractPath"
-
-      # Download SqlPackage ZIP
-      Invoke-WebRequest -Uri $zipUrl -OutFile $downloadPath -UseBasicParsing
-
-      # Clean previous install
-      if (Test-Path $extractPath) {
-        Remove-Item -Path $extractPath -Recurse -Force
+      if (-not "${{ inputs.sql-password-parameter-store }}") {
+        Write-Error "'sql-password-parameter-store' is required."
+        exit 1
+      }
+      if (-not "${{ inputs.aws-region }}") {
+        Write-Error "'aws-region' is required."
+        exit 1
       }
 
-      # Extract and cleanup
-      Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
-      Remove-Item $downloadPath -Force
+  - name: Generate password
+    id: generate-password
+    shell: powershell
+    run: |
+      $upper = (65..90 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+      $lower = (97..122 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+      $numbers = (48..57 | Get-Random -Count 3 | ForEach-Object { [char]$_ })
+      $special = ("!" + "#" + "%" | ForEach-Object { $_ })
 
-      # Set path for use in downstream steps
-      echo "SQLPACKAGE_PATH=$extractPath" >> $env:GITHUB_ENV
+      $password = -join ($upper + $lower + $numbers + $special | Sort-Object { Get-Random })
+
+      echo "::add-mask::$password"
+      echo "generated-password=$password" >> $env:GITHUB_OUTPUT
+      Set-Content -Path "$env:GITHUB_WORKSPACE\generated_password.txt" -Value $password
+
+  - name: Store in Parameter Store
+    id: store
+    shell: powershell
+    run: |
+      $parameterName = "${{ inputs.sql-password-parameter-store }}"
+      $region = "${{ inputs.aws-region }}"
+      $password = Get-Content "$env:GITHUB_WORKSPACE\generated_password.txt"
+
+      aws ssm put-parameter `
+        --name "$parameterName" `
+        --value "$password" `
+        --type "SecureString" `
+        --overwrite `
+        --region "$region"
+
+      echo "parameter-path=$parameterName" >> $env:GITHUB_OUTPUT
+      Remove-Item "$env:GITHUB_WORKSPACE\generated_password.txt" -Force
