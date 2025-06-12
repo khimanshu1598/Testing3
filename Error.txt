@@ -1,5 +1,3 @@
-paassql-pipelines/transfer-script/action.yaml: -
-
 name: 'Transfer script to target server'
 description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
 
