@@ -1,151 +1,130 @@
-name: Test Transfer Script Action
+# .github/workflows/test-reusable-action.yml
 
+name: Test PostgreSQL Deploy Action (Success/Failure Paths - Pre-existing DB)
+
+# This workflow is triggered on pull requests to any branch.
 on:
-  pull_request:
+  push:
     paths:
-      - 'paassql-pipelines/transfer-script/**'
-      - '.github/workflows/test-transfer-script.yaml'
-
-env:
-  TEST_AWS_REGION: "us-west-2"
-  DESTINATION_PATH: "C:\\Temp\\Superannuation"
-  MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
-  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
-  DEPLOYMENT_ROLE_ARN: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
-  actions: read
+    - 'paassql-pipelines/deploy-postgresql/**'
+    - '.github/workflows/test-deploy-postgresql.yaml'
 
 jobs:
-  success-test:
-    runs-on: [self-hosted, windows, runners-us-west-2]
+  # This job will run tests where the action is expected to complete successfully.
+  prerequisites:
     environment: test
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    env:
+      DBPACKAGE_FOLDER: dbdeploy-extracted
+      SCRIPT_EXTRACTED_FOLDER: script-extracted
     steps:
-    - name: Checkout action
+    - name: "Checkout"
       uses: actions/checkout@v4
 
-    - name: Assume OIDC role
-      id: assume_role
-      uses: xero-internal/github-actions/aws-assume-oidc@main
+    # Downloads the DBUp NuGet package required for applying database changes during deployment
+    - name: DBUp Package
+      id: dbup-package
+      uses: ./paassql-pipelines/package-download
       with:
-        oidc-role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ env.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ env.TEST_AWS_REGION }}
+        target-directory: ${{ github.workspace }}
+        db-package: dbdeploy.1.1.10.nupkg
+        dbpackage-target-dir: ${{ github.workspace }}\${{ env.DBPACKAGE_FOLDER }}
+        task-name: package-download
+        debug-verbose: false
 
-    - name: Create test script
-      shell: powershell
+    # Downloads the PowerShell scripts that need to be executed on the database
+    - name: Scripts Package
+      id: scripts-package
+      uses: ./paassql-pipelines/package-download
+      with:
+        target-directory: ${{ github.workspace }}
+        subfolder: PR539
+        script-name: expense-transcription-db-change-scripts.0.0.69
+        script-target-dir: ${{ github.workspace }}\${{ env.SCRIPT_EXTRACTED_FOLDER }}
+        task-name: script-download
+        debug-verbose: true
+
+    - name: Dependencies as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependencies
+        path: |
+          ${{ github.workspace }}\${{ env.DBPACKAGE_FOLDER }}
+          ${{ github.workspace }}\${{ env.SCRIPT_EXTRACTED_FOLDER }}
+
+  success-path-dry-run:
+    environment: test
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+    needs: prerequisites
+    steps:
+
+    - name: Download dependencies
+      uses: actions/download-artifact@v4
+      with:
+        name: dependencies
+        path: .
+
+    - name: Deploy Database - Dry Run
+      id: deploy-database-dry-run
+      uses: ./paassql-pipelines/deploy-postgresql
+      with:
+        db_host: ${{ vars.ND_DB_HOST }}
+        db_name: ${{ vars.ND_DB_NAME }}
+        db_username: ${{ vars.ND_DB_USERNAME }}
+        db_password: ${{ secrets.ND_DB_PASSWORD }}
+        create-new-database: false
+        dbpackage-target-dir: dbdeploy-extracted
+        script-folder: script-extracted
+        reports-folder: script-extracted/Reports
+        dry-run: true
+        debug-verbose: true
+      env:
+        powershell_script_path: ".github/scripts"
+
+    - name: Verify Action Log for Connection Success (Outcome Check)
+        # This step verifies that the 'Deploy Database - Dry Run' step completed successfully.
+        # If your action's internal script (deploydb.ps1) logs "Successfully connected..."
+        # and exits with a success code, then the step.outcome will be 'success'.
+      if: ${{ steps.deploy-database-dry-run.outcome == 'success' }}
       run: |
-        New-Item -ItemType File -Path "./paassql-pipelines/transfer-script/sql-actions.ps1" -Force
-        Add-Content -Path "./paassql-pipelines/transfer-script/sql-actions.ps1" -Value "# Test script"
+        Write-Host "The 'Deploy Database - Dry Run' step completed successfully, indicating a successful connection was made and logged by the action itself."
+        shell: powershell
 
-    - name: Run transfer action
-      uses: ./paassql-pipelines/transfer-script
-      env:
-        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
-      with:
-        destination-path: ${{ env.DESTINATION_PATH }}
-        aws-region: ${{ env.TEST_AWS_REGION }}
-
-  validate-destination-path:
-    runs-on: [self-hosted, windows, runners-us-west-2]
-    needs: success-test
+  missing-db-host:
+    runs-on: [ self-hosted, windows, runners-us-west-2 ]
     steps:
-    - name: Checkout action
+    - name: Checkout repo
       uses: actions/checkout@v4
 
-    - name: Assume OIDC role
-      id: assume_role
-      uses: xero-internal/github-actions/aws-assume-oidc@main
+    - name: Test missing db_host
+      id: run_missing
+      uses: ./paassql-pipelines/deploy-postgresql
       with:
-        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ env.TEST_AWS_REGION }}
-
-    - name: Test missing destination-path
-      id: action_run
-      uses: ./paassql-pipelines/transfer-script
+        db_host: ""
+        db_name: ${{ vars.ND_DB_NAME }}
+        db_username: ${{ vars.ND_DB_USERNAME }}
+        db_password: ${{ secrets.ND_DB_PASSWORD }}
+        create-new-database: false
+        dbpackage-target-dir: dbdeploy-extracted
+        script-folder: script-extracted
+        reports-folder: ${{ github.workspace }}\script-extracted\Reports
+        dry-run: true
+        debug-verbose: true
       env:
-        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
-      with:
-        destination-path: ""
-        aws-region: ${{ env.TEST_AWS_REGION }}
-      continue-on-error: true
+        powershell_script_path: ".github/scripts"
 
     - name: Verify failure
-      if: ${{ !cancelled() && steps.action_run.outcome != 'failure' }}
+      if: ${{ !cancelled() && steps.run_missing.outcome != 'failure' }}
       shell: powershell
       run: |
-        Write-Error "Action should have failed with missing destination-path"
+        Write-Error "Expected failure for missing db_host did not happen"
         exit 1
 
-  validate-aws-region:
-    runs-on: [self-hosted, windows, runners-us-west-2]
-    needs: validate-destination-path
-    steps:
-    - name: Checkout action
-      uses: actions/checkout@v4
+Its failing in Deploy Database - Run with the below error:
 
-    - name: Assume OIDC role
-      id: assume_role
-      uses: xero-internal/github-actions/aws-assume-oidc@main
-      with:
-        oidc-role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ env.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ env.TEST_AWS_REGION }}
-
-    - name: Test missing aws-region
-      id: action_run
-      uses: ./paassql-pipelines/transfer-script
-      env:
-        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
-      with:
-        destination-path: ${{ env.DESTINATION_PATH }}
-        aws-region: ""
-      continue-on-error: true
-
-    - name: Verify failure
-      if: ${{ !cancelled() && steps.action_run.outcome != 'failure' }}
-      shell: powershell
-      run: |
-        Write-Error "Action should have failed with missing aws-region"
-        exit 1
-
-  script-validation:
-    runs-on: [self-hosted, windows, runners-us-west-2]
-    needs: [validate-destination-path, validate-aws-region]
-    steps:
-    - name: Checkout action
-      uses: actions/checkout@v4
-
-    - name: Assume OIDC role
-      id: assume_role
-      uses: xero-internal/github-actions/aws-assume-oidc@main
-      with:
-        oidc-role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-        target-role-to-assume: ${{ env.DEPLOYMENT_ROLE_ARN }}
-        aws-region: ${{ env.TEST_AWS_REGION }}
-
-    - name: Delete script file
-      shell: powershell
-      run: |
-        Remove-Item "./paassql-pipelines/transfer-script/sql-actions.ps1" -Force -ErrorAction SilentlyContinue
-
-    - name: Verify script validation fails
-      id: script_test
-      uses: ./paassql-pipelines/transfer-script
-      env:
-        MATRIX_INSTANCE_LIST: ${{ env.MATRIX_INSTANCE_LIST }}
-      with:
-        destination-path: ${{ env.DESTINATION_PATH }}
-        aws-region: ${{ env.TEST_AWS_REGION }}
-      continue-on-error: true
-
-    - name: Check failure
-      if: ${{ !cancelled() && steps.script_test.outcome != 'failure' }}
-      shell: powershell
-      run: |
-        Write-Error "Action should have failed with missing script file"
-        exit 1
+Run cd dbdeploy-extracted
+Refreshing environment variables from the registry for powershell.exe. Please wait...
+Finished
+The argument 'C:\actions-runner\_work\dacpac-actions\dacpac-actions\paassql-pipelines\deploy-postgressql\deploydb.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
+Windows PowerShell 
+Copyright (C) Microsoft Corporation. All rights reserved.
