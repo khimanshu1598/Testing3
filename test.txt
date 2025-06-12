@@ -128,3 +128,22 @@ Finished
 The argument 'C:\actions-runner\_work\dacpac-actions\dacpac-actions\paassql-pipelines\deploy-postgressql\deploydb.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
 Windows PowerShell 
 Copyright (C) Microsoft Corporation. All rights reserved.
+
+
+- name: Find deploydb.ps1 location
+  run: |
+    Write-Host "Searching for deploydb.ps1 in workspace..."
+    $scriptPath = Get-ChildItem -Path "${{ github.workspace }}" -Recurse -Filter "deploydb.ps1" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    
+    if ($scriptPath) {
+      Write-Host "Found deploydb.ps1 at: $scriptPath"
+      # Optionally set it as an output for later steps
+      echo "script_location=$scriptPath" >> $env:GITHUB_OUTPUT
+    } else {
+      Write-Error "ERROR: deploydb.ps1 not found anywhere in the workspace!"
+      # List all files for debugging
+      Write-Host "Workspace structure:"
+      Get-ChildItem -Path "${{ github.workspace }}" -Recurse | Format-Table FullName
+      exit 1
+    }
+  shell: powershell
