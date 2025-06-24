@@ -647,3 +647,14 @@ jobs:
     steps:
     - name: "Review - Deploy Report and Deploy Script"
       run: echo "The request has been approved by the approvers. Proceeding with next steps"
+
+
+
+I have given you 4 files: -
+.github/workflows/workpapers_db.yml
+.github/workflows/dacpac_workflow.yml
+.github/workflows/deploy_dacpac.yml
+.github/workflows/approval.yml
+
+
+Give me the text prompt which i can use to generate the flow chart as how each workflow is integrated to each other. Actions that are called in each action and everything to create a detailed flowchart using the prompt.
