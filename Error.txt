@@ -1,73 +1,62 @@
-Generate a detailed flowchart of GitHub Actions workflows integration for DACPAC Deployment for Workpapers DB. The structure includes four workflows with nested calls and job dependencies.
+Generate a clean flowchart that visualizes the GitHub Actions workflows for DACPAC deployment of Workpapers DB. Show how the four workflows are connected and their high-level responsibilities. Keep it simple and structured.
 
-🧩 Workflow: .github/workflows/workpapers_db.yml (Main Entry Point)
+🏁 1. Main Workflow: `.github/workflows/workpapers_db.yml`
 - Triggered by:
-  - workflow_dispatch (manual input: release-number)
-  - pull_request changes to this file
-- Calls:
-  - Job: deploy-uat ➡️ calls `dacpac_workflow.yml` with environment=test
-  - Job: approval-prod-env ➡️ calls `approval.yml` (manual gate for production)
-  - Job: deploy-prod ➡️ calls `dacpac_workflow.yml` with environment=production
+  - Manual input (`workflow_dispatch`)
+  - PR changes to this file
+- Contains 3 jobs:
+  - `deploy-uat` → Calls reusable workflow: `dacpac_workflow.yml` (for UAT)
+  - `approval-prod-env` → Calls reusable workflow: `approval.yml` (manual prod approval)
+  - `deploy-prod` → Calls reusable workflow: `dacpac_workflow.yml` (for Production)
+- Inputs passed: release number, paths, environment
 
-📦 Workflow: .github/workflows/dacpac_workflow.yml (Reusable Deployment Orchestration)
-- Triggered by: `workflow_call` from workpapers_db.yml
-- Calls:
-  - Job: dacpac-deploy-report ➡️ calls `deploy_dacpac.yml` with action=DeployReport
-  - Job: dacpac-deploy-script ➡️ calls `deploy_dacpac.yml` with action=Script
-  - Job: dacpac-publish ➡️ calls `deploy_dacpac.yml` with action=Publish
-  - Job: approval (conditional) ➡️ calls `approval.yml` for manual intervention
-- Job Execution Sequence:
-  1. start-deploy-track
-  2. download-packages
-  3. prepare-matrix-list
-  4. setup-db-user
-  5. dacpac-deploy-report (→ deploy_dacpac.yml)
-  6. dacpac-deploy-script (→ deploy_dacpac.yml)
-  7. notify-start (Slack start)
-  8. approval (→ approval.yml) [only if approval-environment is set]
-  9. dacpac-publish (→ deploy_dacpac.yml)
- 10. cleanup-db-user
- 11. notify (Slack + DeployTrack end)
+🔁 2. Reusable Workflow: `.github/workflows/dacpac_workflow.yml`
+- Called by: `deploy-uat` and `deploy-prod`
+- Main responsibilities:
+  - Start deployment tracking
+  - Download and prepare packages
+  - Prepare database instance matrix
+  - Setup temporary SQL user
+  - Generate deploy report and script
+  - Notify start (Slack)
+  - Request approval if needed → Calls `approval.yml`
+  - Perform final publish → Calls `deploy_dacpac.yml`
+  - Cleanup SQL user
+  - Final Slack and deploy tracking notification
 
-🛠️ Workflow: .github/workflows/deploy_dacpac.yml (Performs DACPAC Operation)
-- Triggered by: dacpac_workflow.yml
-- Purpose: Executes SQL DACPAC action (DeployReport, Script, Publish)
+📦 3. Reusable DACPAC Executor: `.github/workflows/deploy_dacpac.yml`
+- Called by: `dacpac_workflow.yml`
+- Executes one of the following actions:
+  - DeployReport
+  - Script
+  - Publish
 - Steps:
-  - OIDC role assumption
+  - Assume AWS OIDC role
   - Download artifacts
-  - Perform DACPAC Action via sql-dacpac-deployer
-  - Upload output (for DeployReport/Script)
-  - Post New Relic event if action=Publish
+  - Execute action via SQL DACPAC deployer
+  - Optionally post a New Relic release event
 
-🛑 Workflow: .github/workflows/approval.yml (Reusable Manual Approval)
-- Triggered by:
-  - workpapers_db.yml ➡️ approval-prod-env
-  - dacpac_workflow.yml ➡️ approval
-- Contains:
-  - Single job: approval (manual review before continuing)
+✅ 4. Reusable Approval Workflow: `.github/workflows/approval.yml`
+- Called by:
+  - `workpapers_db.yml` for production manual approval
+  - `dacpac_workflow.yml` if `approval-environment` is configured
+- Simple manual gate using GitHub Environments
 
-🧭 Flowchart Integration Tree:
+📌 Visual Layout Suggestion:
 workpapers_db.yml
-├── deploy-uat
-│   └── calls dacpac_workflow.yml (test)
-│       ├── dacpac-deploy-report ──▶ deploy_dacpac.yml (DeployReport)
-│       ├── dacpac-deploy-script ──▶ deploy_dacpac.yml (Script)
-│       └── dacpac-publish ────────▶ deploy_dacpac.yml (Publish)
+├── deploy-uat ─────────────▶ dacpac_workflow.yml (env: test)
+│                               └── calls deploy_dacpac.yml 3x (DeployReport, Script, Publish)
+│                               └── optionally calls approval.yml
 │
-├── approval-prod-env
-│   └── calls approval.yml
+├── approval-prod-env ──────▶ approval.yml
 │
-└── deploy-prod
-    └── calls dacpac_workflow.yml (production)
-        ├── same steps as above
-        └── approval ──────────────▶ approval.yml
+└── deploy-prod ────────────▶ dacpac_workflow.yml (env: production)
+                                └── same structure as above
 
-🔔 Notifications:
-- notify-start and notify jobs send Slack updates
-- DeployTrack integration runs at start and end of dacpac_workflow
+📎 Notes:
+- Use grouped boxes or nested flows per workflow
+- Label each reusable workflow call with `uses:`
+- Slack notifications occur in `notify-start` and `notify`
+- DeployTrack integration wraps start and end of deploy flow
 
-📥 Inputs passed: release-number, runner-region, project-name, af-path, destination-path
-📤 Outputs chained across jobs using `outputs:` and `needs:` pattern
-
-Highlight all reusable workflow calls (`uses: ./.github/workflows/...`) and show environment-specific flows separately.
-
+Keep the diagram clean and readable — do not show internal job details unless part of workflow-to-workflow relationship.
