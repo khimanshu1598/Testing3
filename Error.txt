@@ -1,125 +1,73 @@
-name: 'Transfer script to target server'
-description: 'Uses AWS SSM to transfer script sql-actions.ps1 to the target server.'
+Generate a detailed flowchart of GitHub Actions workflows integration for DACPAC Deployment for Workpapers DB. The structure includes four workflows with nested calls and job dependencies.
 
-inputs:
-  destination-path:
-    description: 'Folder path on the target server where the script will be placed'
-    required: true
-  aws-region:
-    description: 'AWS region details'
-    required: true
+🧩 Workflow: .github/workflows/workpapers_db.yml (Main Entry Point)
+- Triggered by:
+  - workflow_dispatch (manual input: release-number)
+  - pull_request changes to this file
+- Calls:
+  - Job: deploy-uat ➡️ calls `dacpac_workflow.yml` with environment=test
+  - Job: approval-prod-env ➡️ calls `approval.yml` (manual gate for production)
+  - Job: deploy-prod ➡️ calls `dacpac_workflow.yml` with environment=production
 
-runs:
-  using: composite
-  steps:
+📦 Workflow: .github/workflows/dacpac_workflow.yml (Reusable Deployment Orchestration)
+- Triggered by: `workflow_call` from workpapers_db.yml
+- Calls:
+  - Job: dacpac-deploy-report ➡️ calls `deploy_dacpac.yml` with action=DeployReport
+  - Job: dacpac-deploy-script ➡️ calls `deploy_dacpac.yml` with action=Script
+  - Job: dacpac-publish ➡️ calls `deploy_dacpac.yml` with action=Publish
+  - Job: approval (conditional) ➡️ calls `approval.yml` for manual intervention
+- Job Execution Sequence:
+  1. start-deploy-track
+  2. download-packages
+  3. prepare-matrix-list
+  4. setup-db-user
+  5. dacpac-deploy-report (→ deploy_dacpac.yml)
+  6. dacpac-deploy-script (→ deploy_dacpac.yml)
+  7. notify-start (Slack start)
+  8. approval (→ approval.yml) [only if approval-environment is set]
+  9. dacpac-publish (→ deploy_dacpac.yml)
+ 10. cleanup-db-user
+ 11. notify (Slack + DeployTrack end)
 
-  - name: Validate inputs
-    shell: bash
-    run: |
-      # Validate required inputs
-      if [ -z "${{ inputs.destination-path }}" ]; then
-        echo "::error::destination-path is required"
-        exit 1
-      fi
+🛠️ Workflow: .github/workflows/deploy_dacpac.yml (Performs DACPAC Operation)
+- Triggered by: dacpac_workflow.yml
+- Purpose: Executes SQL DACPAC action (DeployReport, Script, Publish)
+- Steps:
+  - OIDC role assumption
+  - Download artifacts
+  - Perform DACPAC Action via sql-dacpac-deployer
+  - Upload output (for DeployReport/Script)
+  - Post New Relic event if action=Publish
 
-      if [ -z "${{ inputs.aws-region }}" ]; then
-        echo "::error::aws-region is required"
-        exit 1
-      fi
+🛑 Workflow: .github/workflows/approval.yml (Reusable Manual Approval)
+- Triggered by:
+  - workpapers_db.yml ➡️ approval-prod-env
+  - dacpac_workflow.yml ➡️ approval
+- Contains:
+  - Single job: approval (manual review before continuing)
 
-      # Validate script exists
-      if [ ! -f "${{ github.action_path }}/sql-actions.ps1" ]; then
-        echo "::error::sql-actions.ps1 not found in action directory"
-        exit 1
-      fi
+🧭 Flowchart Integration Tree:
+workpapers_db.yml
+├── deploy-uat
+│   └── calls dacpac_workflow.yml (test)
+│       ├── dacpac-deploy-report ──▶ deploy_dacpac.yml (DeployReport)
+│       ├── dacpac-deploy-script ──▶ deploy_dacpac.yml (Script)
+│       └── dacpac-publish ────────▶ deploy_dacpac.yml (Publish)
+│
+├── approval-prod-env
+│   └── calls approval.yml
+│
+└── deploy-prod
+    └── calls dacpac_workflow.yml (production)
+        ├── same steps as above
+        └── approval ──────────────▶ approval.yml
 
-  - name: Transfer script to target EC2 server via SSM and wait for success
-    id: transfer-file-to-ec2
-    shell: bash
-    run: |
-      set -e
+🔔 Notifications:
+- notify-start and notify jobs send Slack updates
+- DeployTrack integration runs at start and end of dacpac_workflow
 
-      echo "Starting script transfer..."
+📥 Inputs passed: release-number, runner-region, project-name, af-path, destination-path
+📤 Outputs chained across jobs using `outputs:` and `needs:` pattern
 
-      SCRIPT_FILE="${{ github.action_path }}/sql-actions.ps1"
-      echo "Resolved local script path: $SCRIPT_FILE"
+Highlight all reusable workflow calls (`uses: ./.github/workflows/...`) and show environment-specific flows separately.
 
-      # Encode the file to base64
-      ENCODED=$(base64 -w 0 "$SCRIPT_FILE")
-
-      # Build the PowerShell command
-      PS_COMMAND="\$b64='$ENCODED'; \
-      if (!(Test-Path '${{ inputs.destination-path }}')) { New-Item -Path '${{ inputs.destination-path }}' -ItemType Directory | Out-Null }; \
-      \$scriptPath = Join-Path '${{ inputs.destination-path }}' 'sql-actions.ps1'; \
-      if (Test-Path \$scriptPath) { Remove-Item \$scriptPath -Force; Write-Output 'FILE_DELETED' }; \
-      \$decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$b64)); \
-      Set-Content -Path \$scriptPath -Value \$decoded -Force; \
-      Write-Output 'FILE_UPLOADED'"
-
-      # Normalize matrix instance list
-      matrixJson="$MATRIX_INSTANCE_LIST"
-      if [[ "$matrixJson" != \[* ]]; then
-        echo "Wrapping single JSON object in an array..."
-        matrixJson=$(echo "$matrixJson" | jq -c '[.]')
-      fi
-
-      echo "Raw MATRIX_INSTANCE_LIST: $matrixJson"
-
-      # Iterate over each instance
-      echo "$matrixJson" | jq -c '.[]' | while read -r item; do
-        instance=$(echo "$item" | jq -r '.instance')
-        dbServer=$(echo "$item" | jq -r '.dbServerName')
-        role=$(echo "$item" | jq -r '.role')
-
-        echo "----------------------------------"
-        echo "Transferring script to - Instance: $instance, Role: $role, DB Server: $dbServer"
-
-        # Send the transfer command
-        command_id=$(aws ssm send-command \
-          --document-name "AWS-RunPowerShellScript" \
-          --instance-ids "$instance" \
-          --region "${{ inputs.aws-region }}" \
-          --comment "Uploading sql-actions.ps1 via GitHub Actions" \
-          --parameters "commands=[\"$PS_COMMAND\"]" \
-          --query "Command.CommandId" \
-          --output text)
-
-        echo "Command ID generated: $command_id"
-
-        # Wait for upload to complete
-        echo "Waiting for upload to complete..."
-        timeout_minutes=5
-        timeout_seconds=$((timeout_minutes * 60))
-        elapsed_seconds=0
-
-        while true; do
-          status=$(aws ssm list-command-invocations \
-            --command-id "$command_id" \
-            --instance-id "$instance" \
-            --region "${{ inputs.aws-region }}" \
-            --query "CommandInvocations[0].Status" \
-            --output text)
-
-          echo "Current SSM command status for $instance: $status"
-
-          if [[ "$status" == "Success" ]]; then
-            echo "Script upload completed successfully for instance: $instance"
-            break
-          elif [[ "$status" == "Failed" || "$status" == "Cancelled" || "$status" == "TimedOut" ]]; then
-            echo "Script upload failed for instance: $instance with status: $status"
-            exit 1
-          else
-            echo "Still waiting for script upload... ($elapsed_seconds seconds elapsed)"
-            sleep 5
-            elapsed_seconds=$((elapsed_seconds + 5))
-            if [[ "$elapsed_seconds" -ge "$timeout_seconds" ]]; then
-              echo "Timeout reached ($timeout_minutes minutes) while waiting for script upload on instance: $instance"
-              exit 1
-            fi
-          fi
-        done
-
-        echo "----------------------------------"
-      done
-
-      echo "All scripts uploaded successfully to all instances."
