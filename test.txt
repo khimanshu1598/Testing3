@@ -1,149 +1,649 @@
-# .github/workflows/test-reusable-action.yml
+.github/workflows/workpapers_db.yml: -
 
-name: Test PostgreSQL Deploy Action (Success/Failure Paths - Pre-existing DB)
+name: DACPAC Deployment for Workpapers DB
 
-# This workflow is triggered on pull requests to any branch.
 on:
-  push:
+  workflow_dispatch:
+    inputs:
+      release-number:
+        type: string
+        required: true
+        description: The Release number which will come from teamcity
+  pull_request:
     paths:
-    - 'paassql-pipelines/deploy-postgresql/**'
-    - '.github/workflows/test-deploy-postgresql.yaml'
+    - ".github/workflows/workpapers_db.yml"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
 
 jobs:
-  # This job will run tests where the action is expected to complete successfully.
-  prerequisites:
-    environment: test
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    env:
-      DBPACKAGE_FOLDER: dbdeploy-extracted
-      SCRIPT_EXTRACTED_FOLDER: script-extracted
+  deploy-uat:
+    uses: ./.github/workflows/dacpac_workflow.yml
+    with:
+      af-path: Practice-local/project/Xero.Workpapers.DB/obj/octopacked/
+      project-name: Xero.Workpapers.DB
+      environment: test
+      approval-environment: approval
+      runner-region: us-west-2
+      release-number: ${{ inputs.release-number || vars.RELEASE_NUMBER }}
+      destination-path: C:\\Temp\\Workpapers
+    secrets: inherit
+
+  approval-prod-env:
+    name: Approval to proceed to Production deployment
+    needs: e2e-tests-UAT
+    uses: ./.github/workflows/approval.yml
+    with:
+      environment: approval
+    secrets: inherit
+
+  deploy-prod:
+    needs: approval-prod-env
+    uses: ./.github/workflows/dacpac_workflow.yml
+    with:
+      af-path: Practice-local/project/Xero.Workpapers.DB/obj/octopacked/
+      project-name: Xero.Workpapers.DB
+      environment: production
+      approval-environment: approval
+      runner-region: us-east-1
+      release-number: ${{ inputs.release-number || vars.RELEASE_NUMBER }}
+      destination-path: C:\\Temp\\Workpapers
+    secrets: inherit
+
+##################
+
+.github/workflows/dacpac_workflow.yml: -
+
+name: Reusable DACPAC deployment workflow
+#run-name: [${{ inputs.environment }}] DACPAC Deploy - v${{ inputs.release-number }}
+
+on:
+  workflow_call:
+    inputs:
+      project-name:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+        description: Environment in which pipeline should be deployed
+      approval-environment:
+        type: string
+        required: false
+        description: GitHub Environment to use for approval step
+      runner-region:
+        type: string
+        required: true
+        description: Region for Github runners
+      release-number:
+        type: string
+        required: true
+        description: The Release number which will come from teamcity
+      destination-path:
+        type: string
+        required: true
+        description: Destination path for deploy artifacts
+      af-path:
+        type: string
+        required: true
+      contributer-release-number:
+        type: string
+        required: false
+        description: The Release number which will come from teamcity
+        default: 0.0.33
+      use-cluster-names:
+        type: boolean
+        required: false
+        description: Whether to use cluster names
+        default: false
+    secrets:
+      DEPLOY_TRACK_API_TOKEN:
+        required: true
+
+concurrency:
+  group: ${{ inputs.project-name }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
+
+env:
+  deploy_track_env: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
+
+jobs:
+  # OD Step : Deploy Track Start
+  start-deploy-track:
+    name: Start Deploytrack
+    runs-on: [ self-hosted, linux ]
+    steps:
+    - name: Start DeployTrack
+      uses: xero-internal/github-actions/DeployTrack@v1
+      with:
+        kotahi_id: ${{ vars.KOTAHI_UUID }}
+        environment: ${{ env.deploy_track_env }}
+        status: in_progress
+        token: ${{ secrets.DEPLOY_TRACK_API_TOKEN }}
+
+    - name: Comment Check Deployment
+      uses: xero-internal/github-actions/comment-check-deployment@v1.0
+      with:
+        token: ${{ secrets.DEPLOY_TRACK_API_TOKEN }}
+        environment: ${{ env.deploy_track_env }}
+
+  download-packages:
+    name: Download NuGet packages
+    runs-on: [ self-hosted, windows ]
+    environment: ${{ inputs.environment }}
+    outputs:
+      packages-artifact-id: ${{ steps.upload-packages.outputs.artifact-id }}
+      sql-packages-artifact-id: ${{ steps.upload-sql-packages.outputs.artifact-id }}
+      
     steps:
     - name: "Checkout"
       uses: actions/checkout@v4
 
-    # Downloads the DBUp NuGet package required for applying database changes during deployment
-    - name: DBUp Package
-      id: dbup-package
-      uses: ./paassql-pipelines/package-download
+    - name: Download SQL Package Utilities
+      id: download-dependencies
+      uses: xero-internal/dre-actions/paassql-pipelines/sqlpackage-installation@PIP-2135-Himanshu
       with:
-        target-directory: ${{ github.workspace }}
-        db-package: dbdeploy.1.1.10.nupkg
-        dbpackage-target-dir: ${{ github.workspace }}\${{ env.DBPACKAGE_FOLDER }}
-        task-name: package-download
-        debug-verbose: false
+        aws-region: ${{ vars.AWS_REGION }}
+        download-path: ${{ github.workspace }}\sqlpackage.zip
+        extract-path: ${{ github.workspace }}\sqlpackage
 
-    # Downloads the PowerShell scripts that need to be executed on the database
-    - name: Scripts Package
-      id: scripts-package
-      uses: ./paassql-pipelines/package-download
+    - name: Deploy the Jfrog artifactory NuGet Package and extract it in GHA Runner
+      id: deploy-extract-NuGet
+      uses: xero-internal/dre-actions/paassql-pipelines/download-package-and-contributor-package@PIP-2135-Himanshu
       with:
-        target-directory: ${{ github.workspace }}
-        subfolder: PR539
-        script-name: expense-transcription-db-change-scripts.0.0.69
-        script-target-dir: ${{ github.workspace }}\${{ env.SCRIPT_EXTRACTED_FOLDER }}
-        task-name: script-download
-        debug-verbose: true
+        nuget-pkg-download-path: ${{ vars.NUGET_PACKAGE_PATH }}
+        nuget-pkg-extract-path: ${{ github.workspace }}\packages
+        webrequest-uri: https://artifactory.xero-support.com/artifactory/${{ inputs.af-path }}
+        package-name: ${{ inputs.project-name }}.${{ inputs.release-number }}.nupkg
+        file-type: "nupkg"
 
-    - name: Dependencies as artifacts
+    - name: Deploy the DAC Deploy Contributor Package from Jfrog artifactory and extract it in GHA Runner
+      id: deploy-extract-contributor-package
+      uses: xero-internal/dre-actions/paassql-pipelines/download-package-and-contributor-package@PIP-2135-Himanshu
+      with:
+        nuget-pkg-download-path: ${{ vars.NUGET_CONTRIBUTORS_PACKAGE_PATH }}
+        nuget-pkg-extract-path: "${{ github.workspace }}\\sqlpackage\\Extensions"
+        webrequest-uri: https://artifactory.xero-support.com/artifactory/octopus-dev-local/XeroDeploymentContributors/
+        package-name: XeroDeploymentContributors.${{ inputs.contributer-release-number }}.nupkg
+        file-type: "nupkg"
+
+    - name: Upload DACPAC Packages
+      id: upload-packages
       uses: actions/upload-artifact@v4
       with:
-        name: dependencies
-        path: |
-          ${{ github.workspace }}\${{ env.DBPACKAGE_FOLDER }}
-          ${{ github.workspace }}\${{ env.SCRIPT_EXTRACTED_FOLDER }}
+        name: dacpac-packages
+        path: ${{ github.workspace }}/packages
+        retention-days: 1
 
-  success-path-dry-run:
-    environment: test
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
-    needs: prerequisites
-    steps:
-
-    - name: Download dependencies
-      uses: actions/download-artifact@v4
+    - name: Upload SQLPackage
+      id: upload-sql-packages
+      uses: actions/upload-artifact@v4
       with:
-        name: dependencies
-        path: .
+        name: sql-packages
+        path: ${{ github.workspace }}/sqlpackage
+        retention-days: 1
 
-    - name: Deploy Database - Dry Run
-      id: deploy-database-dry-run
-      uses: ./paassql-pipelines/deploy-postgresql
-      with:
-        db_host: ${{ vars.ND_DB_HOST }}
-        db_name: ${{ vars.ND_DB_NAME }}
-        db_username: ${{ vars.ND_DB_USERNAME }}
-        db_password: ${{ secrets.ND_DB_PASSWORD }}
-        create-new-database: false
-        dbpackage-target-dir: dbdeploy-extracted
-        script-folder: script-extracted
-        reports-folder: script-extracted/Reports
-        dry-run: true
-        debug-verbose: true
-      env:
-        powershell_script_path: ".github/scripts"
-
-    - name: Verify Action Log for Connection Success (Outcome Check)
-        # This step verifies that the 'Deploy Database - Dry Run' step completed successfully.
-        # If your action's internal script (deploydb.ps1) logs "Successfully connected..."
-        # and exits with a success code, then the step.outcome will be 'success'.
-      if: ${{ steps.deploy-database-dry-run.outcome == 'success' }}
-      run: |
-        Write-Host "The 'Deploy Database - Dry Run' step completed successfully, indicating a successful connection was made and logged by the action itself."
-        shell: powershell
-
-  missing-db-host:
-    runs-on: [ self-hosted, windows, runners-us-west-2 ]
+  prepare-matrix-list:
+    name: Prepare list of instances
+    environment: ${{ inputs.environment }}
+    runs-on: [ self-hosted, windows, "runners-${{ inputs.runner-region }}" ]
+    outputs:
+      matrix-instance-list: ${{ steps.fetch-instance-node.outputs.MATRIX_INSTANCE_LIST }}
     steps:
-    - name: Checkout repo
+    - name: "Checkout"
       uses: actions/checkout@v4
 
-    - name: Test missing db_host
-      id: run_missing
-      uses: ./paassql-pipelines/deploy-postgresql
+    - name: Assume OIDC role
+      id: assume_oidc_role
+      uses: xero-internal/github-actions/aws-assume-oidc@v1
       with:
-        db_host: ""
-        db_name: ${{ vars.ND_DB_NAME }}
-        db_username: ${{ vars.ND_DB_USERNAME }}
-        db_password: ${{ secrets.ND_DB_PASSWORD }}
-        create-new-database: false
-        dbpackage-target-dir: dbdeploy-extracted
-        script-folder: script-extracted
-        reports-folder: ${{ github.workspace }}\script-extracted\Reports
-        dry-run: true
-        debug-verbose: true
+        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: "Fetch the Instance ID and Node ID based on USE_CLUSTER_NAMES value"
+      id: fetch-instance-node
+      uses: xero-internal/dre-actions/paassql-pipelines/get-ec2instance-id@PIP-2135-Himanshu
       env:
-        powershell_script_path: ".github/scripts"
+        MATRIX_INSTANCE_LIST: ${{ vars.MATRIX_INSTANCE_LIST }}
+      with:
+        target-servers: ${{ vars.TARGET_SERVERS }}
+        db-name: ${{ vars.DB_NAME }}
+        role-list: ${{ inputs.use-cluster-names && '["primary","sync_secondary","principal_read_only"]' || 'primary' }}
+        db-server-host: ${{ inputs.environment == 'production' && 'prd.aws.xero.com' || 'uat.aws.xero.com' }}
+        is-test-account: false
+        aws-region: ${{ vars.AWS_REGION }}
 
-    - name: Verify failure
-      if: ${{ !cancelled() && steps.run_missing.outcome != 'failure' }}
-      shell: powershell
-      run: |
-        Write-Error "Expected failure for missing db_host did not happen"
-        exit 1
-
-Its failing in Deploy Database - Run with the below error:
-
-Run cd dbdeploy-extracted
-Refreshing environment variables from the registry for powershell.exe. Please wait...
-Finished
-The argument 'C:\actions-runner\_work\dacpac-actions\dacpac-actions\paassql-pipelines\deploy-postgressql\deploydb.ps1' to the -File parameter does not exist. Provide the path to an existing '.ps1' file as an argument to the -File parameter.
-Windows PowerShell 
-Copyright (C) Microsoft Corporation. All rights reserved.
+  setup-db-user:
+    name: Setup DB User
+    environment: ${{ inputs.environment }}
+    runs-on: [ self-hosted, windows, "runners-${{ inputs.runner-region }}" ]
+    needs: prepare-matrix-list
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
 
 
-- name: Find deploydb.ps1 location
-  run: |
-    Write-Host "Searching for deploydb.ps1 in workspace..."
-    $scriptPath = Get-ChildItem -Path "${{ github.workspace }}" -Recurse -Filter "deploydb.ps1" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-    
-    if ($scriptPath) {
-      Write-Host "Found deploydb.ps1 at: $scriptPath"
-      # Optionally set it as an output for later steps
-      echo "script_location=$scriptPath" >> $env:GITHUB_OUTPUT
-    } else {
-      Write-Error "ERROR: deploydb.ps1 not found anywhere in the workspace!"
-      # List all files for debugging
-      Write-Host "Workspace structure:"
-      Get-ChildItem -Path "${{ github.workspace }}" -Recurse | Format-Table FullName
-      exit 1
-    }
-  shell: powershell
+    - name: Assume OIDC role
+      id: assume_oidc_role
+      uses: xero-internal/github-actions/aws-assume-oidc@v1
+      with:
+        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: Generate and store password
+      id: password-gen
+      uses: xero-internal/dre-actions/paassql-pipelines/generate-password@PIP-2135-Himanshu
+      with:
+        sql-password-parameter-store: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: Create a new SQL User
+      id: create-user
+      uses: xero-internal/dre-actions/paassql-pipelines/validate-create-sql-user@PIP-2135-Himanshu
+      env:
+        MATRIX_INSTANCE_LIST: ${{ needs.prepare-matrix-list.outputs.matrix-instance-list }}
+      with:
+        destination-path: ${{ inputs.destination-path }}
+        aws-region: ${{ vars.AWS_REGION }}
+        sql-password-parameter-store: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+        db-name: ${{ vars.DB_NAME }}
+        password-parameter-store: '/secure/dbpassword'
+        sql-user-name: ${{ vars.SQL_USER_NAME }}
+        username: ${{ vars.IMPERSONATED_USERNAME }}
+        needs-windows-authentication: true
+
+  dacpac-deploy-report:
+    # OD Step: DACPAC - Deploy Report - SQL2022
+    name: DACPAC Deploy Report
+    needs:
+    - start-deploy-track
+    - download-packages
+    - setup-db-user
+    - prepare-matrix-list
+    uses: ./.github/workflows/deploy_dacpac.yml
+    with:
+      package-name: ${{ inputs.project-name }}
+      environment: ${{ inputs.environment }}
+      dacpac-action: DeployReport
+      dacpac-filename: deployreport.xml
+      runner-region: ${{ inputs.runner-region }}
+      packages-artifact-id: ${{ needs.download-packages.outputs.packages-artifact-id }}
+      sql-packages-artifact-id: ${{ needs.download-packages.outputs.sql-packages-artifact-id }}
+      matrix-instance-list: ${{ needs.prepare-matrix-list.outputs.matrix-instance-list }}
+      release-number: ${{ inputs.release-number }}
+    secrets: inherit
+
+  dacpac-deploy-script:
+    # OD Step: DACPAC - Deploy Script - SQL2022
+    name: DACPAC Deploy Script
+    needs:
+    - start-deploy-track
+    - download-packages
+    - setup-db-user
+    - prepare-matrix-list
+    uses: ./.github/workflows/deploy_dacpac.yml
+    with:
+      package-name: ${{ inputs.project-name }}
+      environment: ${{ inputs.environment }}
+      dacpac-action: Script
+      dacpac-filename: deployscript.sql
+      runner-region: ${{ inputs.runner-region }}
+      packages-artifact-id: ${{ needs.download-packages.outputs.packages-artifact-id }}
+      sql-packages-artifact-id: ${{ needs.download-packages.outputs.sql-packages-artifact-id }}
+      matrix-instance-list: ${{ needs.prepare-matrix-list.outputs.matrix-instance-list }}
+      release-number: ${{ inputs.release-number }}
+    secrets: inherit
+  
+  notify-start:
+        name: Slack - Notify Deployment
+        environment: ${{ inputs.environment }}
+        runs-on: [ self-hosted, windows, "runners-${{ inputs.runner-region }}" ]
+        needs:
+            - start-deploy-track
+            - download-packages
+            - setup-db-user
+            - prepare-matrix-list
+        outputs:
+          deployment-error: ${{ steps.set-error.outputs.deployment-error }}
+        env:
+          DEPLOYMENT_ERROR: ${{ contains(needs.*.result, 'failure') && 'true' || 'false' }}
+        steps:
+            - name: "Checkout"
+              uses: actions/checkout@v4
+
+            - name: Set deployment-error output
+              id: set-error
+              run: echo "deployment-error=${DEPLOYMENT_ERROR}" >> $GITHUB_OUTPUT
+
+            - name: Slack - Notify Deployment Started
+              id: slack-notify-deployment-start
+              uses: xero-internal/dre-actions/paassql-pipelines/slack-notify-deployment@PIP-2135-Himanshu
+              with:
+                channel-name: '${{ vars.SLACK_CHANNEL }}'
+                username: 'GitHub Actions Bot'
+                slack-webhook-url: '${{ secrets.SLACK_WEBHOOK_URL }}'
+                deployment-error: '${{ steps.set-error.outputs.deployment-error }}'
+                project-name: '${{ github.event.repository.name }}'
+                release-number: '${{ inputs.release-number }}'
+                environment-name: '${{ vars.DACPAC_ENVIRONMENT }}'
+                target-role: ''
+                tenant-name: '${{ github.event.inputs.tenant }}'
+                project-link: '${{ github.server_url }}/${{ github.repository }}'
+                deployment-link: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+                status: 'started'
+
+  approval:
+    # OD Step: Review - Deploy Report and Deploy Script
+    name: Manual Intervention for the DACPAC Publish Action for ${{ inputs.environment }}
+    needs:
+    - dacpac-deploy-report
+    - dacpac-deploy-script
+    if: inputs.approval-environment
+    uses: ./.github/workflows/approval.yml
+    with:
+      environment: ${{ inputs.approval-environment }}
+      notify-slack: true
+    secrets: inherit
+
+  dacpac-publish:
+    # OD Step: DACPAC - Deploy Database - SQL2022
+    name: DACPAC Publish
+    if: ${{ !cancelled() && needs.download-packages.result == 'success' && needs.prepare-matrix-list.result == 'success' && contains(fromJson('["success"]'), needs.approval.result) }}
+    needs:
+    - download-packages
+    - prepare-matrix-list
+    - approval
+    uses: ./.github/workflows/deploy_dacpac.yml
+    with:
+      package-name: ${{ inputs.project-name }}
+      environment: ${{ inputs.environment }}
+      dacpac-action: Publish
+      dacpac-filename: ' '
+      runner-region: ${{ inputs.runner-region }}
+      packages-artifact-id: ${{ needs.download-packages.outputs.packages-artifact-id }}
+      sql-packages-artifact-id: ${{ needs.download-packages.outputs.sql-packages-artifact-id }}
+      matrix-instance-list: ${{ needs.prepare-matrix-list.outputs.matrix-instance-list }}
+      release-number: ${{ inputs.release-number }}
+      is-new-relic-event-enabled: true
+    secrets: inherit
+
+  cleanup-db-user:
+    name: Clean-up DB User
+    if: ${{ !cancelled() }}
+    environment: ${{ inputs.environment }}
+    runs-on: [ self-hosted, windows, "runners-${{ inputs.runner-region }}" ]
+    needs:
+    - dacpac-publish
+    - prepare-matrix-list
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+
+    - name: Assume OIDC role
+      id: assume_oidc_role
+      uses: xero-internal/github-actions/aws-assume-oidc@v1
+      with:
+        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: Delete a New SQL User
+      id: delete-user
+      uses: xero-internal/dre-actions/paassql-pipelines/invoke-sql-actions@PIP-2135-Himanshu
+      env:
+        MATRIX_INSTANCE_LIST: ${{ needs.prepare-matrix-list.outputs.matrix-instance-list }}
+      with:
+        sql-password-parameter-store: ${{ vars.SQL_PASSWORD_PARAMETER_STORE }}
+        db-name: ${{ vars.DB_NAME }}
+        sql-user-name: ${{ vars.SQL_USER_NAME }}
+        sql-activity: 'delete-user'
+        destination-path: ${{ inputs.destination-path }}
+        aws-region: ${{ vars.AWS_REGION }}
+        username: ${{ vars.IMPERSONATED_USERNAME }}
+        password-parameter-store: '/secure/dbpassword'
+        needs-windows-authentication: true
+
+  notify:
+    name: Slack and Deploy Track Notification
+    runs-on: [ self-hosted, windows ]
+    environment: ${{ inputs.environment }}
+    needs:
+    - start-deploy-track
+    - download-packages
+    - setup-db-user
+    - prepare-matrix-list
+    - cleanup-db-user
+    - dacpac-publish
+    - dacpac-deploy-report
+    - dacpac-deploy-script
+    - notify-start
+    - approval
+
+    if: ${{ !cancelled() }}
+    env:
+      MATRIX_INSTANCE_LIST: ${{ needs.prepare-matrix-list.outputs.matrix-instance-list }}
+      DEPLOYMENT_ERROR: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') && 'true' || 'false' }}
+      CONCLUSION: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failed' || 'success' }}
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+
+    - name: Set deployment-error output
+      id: set-error
+      run: echo "deployment-error=${DEPLOYMENT_ERROR}" >> $GITHUB_OUTPUT
+
+    - name: Slack - Notify Deployment Completed
+      id: slack-notify-deployment-complete
+      if: always()
+      uses: xero-internal/dre-actions/paassql-pipelines/slack-notify-deployment@PIP-2135-Himanshu
+      with:
+        channel-name: '${{ vars.SLACK_CHANNEL }}'
+        username: 'GitHub Actions Bot'
+        slack-webhook-url: '${{ secrets.SLACK_WEBHOOK_URL }}'
+        deployment-error: '${{ steps.set-error.outputs.deployment-error }}'
+        project-name: '${{ github.event.repository.name }}'
+        release-number: '${{ vars.RELEASE_NUMBER }}'
+        environment-name: '${{ vars.DACPAC_ENVIRONMENT }}'
+        target-role: ''
+        tenant-name: '${{ github.event.inputs.tenant }}'
+        project-link: '${{ github.server_url }}/${{ github.repository }}'
+        deployment-link: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+        status: '${{ env.CONCLUSION }}'
+
+    # OD Step: Deploy Track End
+    - name: Finalise DeployTrack
+      uses: xero-internal/github-actions/DeployTrack@v1
+      if: ${{ always() }}
+      env:
+        CONCLUSION: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failed' || 'success' }}
+      with:
+        kotahi_id: ${{ vars.CORTEX_UUID }}
+        environment: ${{ env.deploy_track_env }}
+        status: ${{ env.CONCLUSION }}
+        token: ${{ secrets.DEPLOY_TRACK_API_TOKEN }}
+
+#################
+
+.github/workflows/deploy_dacpac.yml: -
+
+name: Reusable workflow to deploy dacpac
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: string
+      package-name:
+        description: Name of the package
+        required: true
+        type: string
+      dacpac-action:
+        description: DACPAC Action
+        required: true
+        type: string
+      dacpac-filename:
+        description: DACPAC FileName
+        required: false
+        type: string
+        default: ""
+      runner-region:
+        description: "Region for Github runners"
+        required: true
+        type: string
+      packages-artifact-id:
+        description: "Artifact ID of the packages artifact"
+        required: true
+        type: string
+      sql-packages-artifact-id:
+        description: "Artifact ID of the SQL packages artifact"
+        required: true
+        type: string
+      matrix-instance-list:
+        description: Matrix of instance configuration
+        required: false
+        type: string
+      is-new-relic-event-enabled:
+        description: Boolean value to run the New Relic step in pipeline
+        required: false
+        type: boolean
+        default: false
+      release-number:
+        description: The Release number which will come from teamcity
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  deploy_track_env: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
+
+jobs:
+  deploy-dacpac:
+    name: Deploy a data-tier application - ${{ inputs.dacpac-action }}
+    environment: ${{ inputs.environment }}
+    runs-on: [ self-hosted, windows, "runners-${{ inputs.runner-region }}" ]
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+
+    - name: Assume OIDC role
+      id: assume_oidc_role
+      uses: xero-internal/github-actions/aws-assume-oidc@v1
+      with:
+        oidc-role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
+        target-role-to-assume: ${{ vars.DEPLOYMENT_ROLE_ARN }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: Download DACPAC Packages
+      uses: actions/download-artifact@v4
+      with:
+        artifact-ids: ${{ inputs.packages-artifact-id }}
+        path: ${{ github.workspace }}/packages
+        merge-multiple: true
+
+    - name: Download SQL Packages
+      uses: actions/download-artifact@v4
+      with:
+        artifact-ids: ${{ inputs.sql-packages-artifact-id }}
+        path: ${{ github.workspace }}/sqlpackage
+        merge-multiple: true
+
+    - name: ${{ inputs.dacpac-action }} DACPAC Action
+      id: deploy-report
+      uses: xero-internal/dre-actions/paassql-pipelines/sql-dacpac-deployer@PIP-2135-Himanshu
+      env:
+        MATRIX_INSTANCE_LIST: ${{ inputs.matrix-instance-list }}
+      with:
+        Action: ${{ inputs.dacpac-action }}
+        DacpacPath: "${{ github.workspace }}\\packages\\${{ inputs.package-name }}.dacpac"
+        DatabaseName: "${{ vars.DB_NAME }}"
+        UserName: "${{ vars.SQL_USER_NAME }}"
+        SqlPackagePath: "${{ github.workspace }}\\sqlpackage\\sqlpackage.exe"
+        sql-password-parameter-store: "${{ vars.SQL_PASSWORD_PARAMETER_STORE }}"
+        ArtifactDownloadPath: "${{ github.workspace }}\\dacpacs"
+        ReleaseNumber: "${{ vars.RELEASE_NUMBER }}"
+        FileName: ${{ inputs.dacpac-filename }}
+        TargetServer: ${{ vars.TARGET_SERVERS }}
+        PublishProfileFilePath: "${{ github.workspace }}\\packages\\${{ vars.PUBLISH_PROFILE_FILE_NAME }}"
+        UseMultiSubnetFailover: ${{ vars.MULTI_SUBNET_FAILOVER }}
+        SQLPackageDeployProperties: ${{ vars.SQL_PACKAGE_DEPLOY_PROPERTIES }}
+        SQLCMDVariables: ${{ vars.SQL_CMD_VARIABLES }}
+        SQLPackageParameters: ${{ vars.SQL_PACKAGE_PARAMETERS }}
+        aws-region: ${{ vars.AWS_REGION}}
+
+    # OD Step: New Relic - Release Event
+    - name: New Relic - Release Event
+      if: ${{ inputs.dacpac-action == 'Publish' && vars.NR_ENVIRONMENT && vars.NEW_RELIC_APP_KEY && inputs.is-new-relic-event-enabled }}
+      uses: xero-internal/dre-actions/paassql-pipelines/new-relic-event@PIP-2135-Himanshu
+      with:
+        release-artifact: ${{ vars.DB_NAME }}
+        environment: ${{ vars.NR_ENVIRONMENT }}
+        new-relic-app-key: ${{ vars.NEW_RELIC_APP_KEY }}
+        new-relic-api-key: ${{ secrets.NEW_RELIC_API_KEY }}
+        deployer: ${{ github.actor }}
+        release-number: ${{ inputs.release-number }}
+        github-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        target-servers: ${{ vars.TARGET_SERVERS }}
+        owner: ${{ vars.OWNER }}
+
+    - name: Upload DACPAC Artifact
+      if: ${{ inputs.dacpac-action != 'Publish' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: Deploy DACPAC Artifacts - ${{ inputs.dacpac-action }}
+        path: ${{ github.workspace }}/dacpacs
+        # path: ${{ github.workspace }}\dacpacs
+
+###########################
+
+.github/workflows/approval.yml: -
+
+name: Reusable workflow for approval
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: string
+      notify-slack:
+        description: Slack Notification flag
+        required: false
+        type: boolean
+        default: false
+      slack_thread_id:
+        description: Slack Thread ID to post Approval message
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  approval:
+    if: success()
+    runs-on: [ self-hosted, linux ]
+    environment: ${{ inputs.environment }}
+    name: Manual Intervention
+    steps:
+    - name: "Review - Deploy Report and Deploy Script"
+      run: echo "The request has been approved by the approvers. Proceeding with next steps"
