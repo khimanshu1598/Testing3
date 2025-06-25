@@ -1,42 +1,44 @@
-name: Environment-Specific Matrix Deployment
+name: Environment-Specific Deployment
 on:
   push:
     branches:
-      - '*'  # Triggers on push to any branch
+      - 'PIP-2135-ENV-TESTING'
 
 jobs:
   deploy:
     strategy:
       matrix:
-        include:
-          - environment: uat
-            runner-labels: ["self-hosted", "windows", "runners-us-west-2"]
-            region: us-west-2
-            commit_pattern: '[env:uat]'
-          - environment: prod
-            runner-labels: ["self-hosted", "windows", "runners-us-east-1"]
-            region: us-east-1
-            commit_pattern: '[env:prod]'
+        environments: 
+          - { name: 'uat', runner: 'self-hosted,windows,runners-us-west-2', region: 'us-west-2', pattern: '[env:uat]' }
+          - { name: 'prod', runner: 'self-hosted,windows,runners-us-east-1', region: 'us-east-1', pattern: '[env:prod]' }
     
-    runs-on: ${{ matrix.runner-labels }}
-    environment: ${{ matrix.environment == 'uat' && 'UAT' || 'Production' }}
-    
-    # Only run if the commit message matches our pattern
-    if: contains(github.event.head_commit.message, matrix.commit_pattern)
+    runs-on: ${{ fromJson(format('["{0}"]', matrix.environments.runner)) }}
+    environment: ${{ matrix.environments.name == 'uat' && 'UAT' || 'Production' }}
     
     steps:
+      - name: Check for environment match
+        id: check-env
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" == *"${{ matrix.environments.pattern }}"* ]]; then
+            echo "match=true" >> $GITHUB_OUTPUT
+          else
+            echo "match=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout code
+        if: steps.check-env.outputs.match == 'true'
         uses: actions/checkout@v4
         
       - name: Show Environment Info
+        if: steps.check-env.outputs.match == 'true'
         run: |
           echo "Running on ${{ runner.name }}"
-          echo "Environment: ${{ matrix.environment }}"
-          echo "Region: ${{ matrix.region }}"
+          echo "Environment: ${{ matrix.environments.name }}"
+          echo "Region: ${{ matrix.environments.region }}"
           echo "Commit Message: ${{ github.event.head_commit.message }}"
           
       - name: Execute Deployment
+        if: steps.check-env.outputs.match == 'true'
         run: |
-          echo "Deploying to ${{ matrix.environment }} environment"
-          echo "Using region: ${{ matrix.region }}"
-          # Add your actual deployment commands here
+          echo "Deploying to ${{ matrix.environments.name }} environment"
+          echo "Using region: ${{ matrix.environments.region }}"
