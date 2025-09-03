@@ -1,0 +1,88 @@
+GOAL NAME
+Fix OIDC Provider Management - Make It Work Automatically
+
+DESCRIPTION
+Our OIDC (OpenID Connect) system for Kubernetes clusters is broken. The Terraform repository is too big and deployments have to be done manually, which is slow and error-prone. We need to fix this so teams can get OIDC changes deployed automatically without waiting for manual intervention.
+
+THE PROBLEM
+- What's broken: The Terraform repo is too large and can't deploy automatically
+- Current pain: Every OIDC change needs someone to manually run Terraform locally
+- Impact: Teams are blocked when they need OIDC configuration changes
+- Future context: OIDC will eventually be replaced by EKS Pod Identity, but that migration will take time
+
+THE SOLUTION
+Build an automated system that lets teams manage their own OIDC providers without manual intervention.
+
+What we built:
+- Self-service web interface where teams can create and manage OIDC providers
+- Automated deployment system that handles all the Terraform operations
+- Permission controls so only the right people can make changes
+- Real-time validation to catch errors before deployment
+
+SUCCESS CRITERIA
+
+We know it's working when:
+1. Teams can self-serve - Users create OIDC providers through a web interface without asking anyone
+2. No manual work needed - Deployments happen automatically, no one needs to run Terraform locally
+3. No downtime - The migration doesn't break existing OIDC providers or block new requests
+4. Fast turnaround - OIDC changes deploy in minutes, not hours or days
+
+Technical success:
+- Web application works reliably
+- All existing OIDC providers still work after migration
+- New OIDC providers deploy successfully
+- Security controls prevent unauthorized changes
+- System handles errors gracefully
+
+Business success:
+- Teams aren't blocked waiting for OIDC changes
+- Reduced manual work for operations team
+- Faster delivery of AWS access for development teams
+- Clear audit trail of who made what changes
+
+HOW WE KNOW IT'S DONE
+
+Ready for production when:
+- Teams can complete the full workflow (select AWS account → choose clusters → deploy) successfully
+- Permission system works (only AWS account owners and namespace admins can make changes)
+- Error handling shows helpful messages when things go wrong
+- Monitoring and alerting is set up for operations team
+
+Fully complete when:
+- CAB (Change Advisory Board) approves the new automated approach
+- All teams are using the new system instead of manual requests
+- Documentation is updated
+- Old manual process is officially retired
+
+ADDITIONAL DETAILS
+
+Implementation Approach - Kora Platform Solution
+We chose to implement this solution using Xero's Kora platform, which provides:
+- Self-service web interface built with React and TypeScript
+- Automated Terraform execution managed by the Kora backend
+- Policy-based governance using Open Policy Agent (OPA) for security
+- Integration with existing systems like AWS accounts and Kubernetes clusters
+
+Current Status - LIVE IN PRODUCTION
+✓ The Kora-based OIDC service is now live and operational
+
+- Production URL: Available through the Kora platform at https://kora.xero.dev/kora-paas/k8s-oidc-connections
+- User Access: Teams can now create and manage OIDC providers through the web interface
+- Automation: Deployments happen automatically without manual Terraform operations
+- Security: Permission controls ensure only authorized users can make changes
+- Monitoring: System is monitored and supported by the platform team
+
+Why Kora Platform?
+- Faster delivery: Leveraged existing platform capabilities instead of building from scratch
+- Proven patterns: Used established Xero patterns for self-service infrastructure
+- Built-in security: Inherited Kora's authentication, authorization, and governance features
+- Operational support: Benefits from existing Kora platform monitoring and support processes
+- Future-ready: Positions us well for eventual migration to EKS Pod Identity
+
+Next Steps
+- Continue monitoring system performance and user adoption
+- Gather feedback from teams using the new self-service interface
+- Plan for eventual migration to EKS Pod Identity when tenants are ready
+- Optimize the user experience based on real-world usage patterns
+
+This initiative successfully transformed a manual, error-prone process into a modern, automated self-service capability that teams can rely on.
