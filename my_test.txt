@@ -11,9 +11,16 @@ THE PROBLEM
 - Future context: OIDC will eventually be replaced by EKS Pod Identity, but that migration will take time
 
 THE SOLUTION
-Build an automated system that lets teams manage their own OIDC providers without manual intervention.
+Build an automated system using Xero's Kora platform that lets teams manage their own OIDC providers without manual intervention.
 
-What we built:
+Why we chose Kora platform:
+- Faster delivery: Leverage existing platform capabilities instead of building from scratch
+- Proven patterns: Use established Xero patterns for self-service infrastructure
+- Built-in security: Inherit Kora's authentication, authorization, and governance features
+- Operational support: Benefit from existing platform monitoring and support processes
+- Future-ready: Positions us well for eventual migration to EKS Pod Identity
+
+What we built on Kora:
 - Self-service web interface where teams can create and manage OIDC providers
 - Automated deployment system that handles all the Terraform operations
 - Permission controls so only the right people can make changes
@@ -56,33 +63,14 @@ Fully complete when:
 
 ADDITIONAL DETAILS
 
-Implementation Approach - Kora Platform Solution
-We chose to implement this solution using Xero's Kora platform, which provides:
-- Self-service web interface built with React and TypeScript
-- Automated Terraform execution managed by the Kora backend
-- Policy-based governance using Open Policy Agent (OPA) for security
-- Integration with existing systems like AWS accounts and Kubernetes clusters
+Initiative Status - COMPLETED
+✓ This initiative has been successfully completed using Xero's Kora platform
 
-Current Status - LIVE IN PRODUCTION
-✓ The Kora-based OIDC service is now live and operational
+Implementation Details:
+- Built self-service web interface using React and TypeScript on Kora platform
+- Automated Terraform execution managed by Kora backend
+- Policy-based governance implemented using Open Policy Agent (OPA)
+- Integration completed with existing AWS accounts and Kubernetes clusters
+- Migration of existing manually-created AWS OIDC providers imported into the new service for ongoing management
 
-- Production URL: Available through the Kora platform at https://kora.xero.dev/kora-paas/k8s-oidc-connections
-- User Access: Teams can now create and manage OIDC providers through the web interface
-- Automation: Deployments happen automatically without manual Terraform operations
-- Security: Permission controls ensure only authorized users can make changes
-- Monitoring: System is monitored and supported by the platform team
-
-Why Kora Platform?
-- Faster delivery: Leveraged existing platform capabilities instead of building from scratch
-- Proven patterns: Used established Xero patterns for self-service infrastructure
-- Built-in security: Inherited Kora's authentication, authorization, and governance features
-- Operational support: Benefits from existing Kora platform monitoring and support processes
-- Future-ready: Positions us well for eventual migration to EKS Pod Identity
-
-Next Steps
-- Continue monitoring system performance and user adoption
-- Gather feedback from teams using the new self-service interface
-- Plan for eventual migration to EKS Pod Identity when tenants are ready
-- Optimize the user experience based on real-world usage patterns
-
-This initiative successfully transformed a manual, error-prone process into a modern, automated self-service capability that teams can rely on.
+The solution is now live in production and teams are actively using the automated OIDC provider management system instead of the previous manual process.
